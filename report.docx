@@ -1,0 +1,1242 @@
+GSD (Get Shit Done) 深度研究报告：运作机制、核心特点与创新亮点
+研究日期: 2026年4月25日
+研究范围: get-shit-done 开源项目（gsd-build/get-shit-done）
+研究方法: 多代理深度研究，12个并行维度，350+次独立搜索，交叉验证与洞察提取
+报告字数: 约 28,000 字（含图表分析）
+执行摘要
+Get Shit Done (GSD) 是由独立开发者 TÂCHES 创建的开源元提示、上下文工程和规格驱动开发系统。项目在 GitHub 上获得超过 54,000 颗星标，支持 15 个以上 AI 编程平台，采用 MIT 许可证，已形成一个活跃的社区移植生态。
+
+GSD 的核心价值在于解决 AI 辅助开发中的“上下文衰减”（Context Rot）问题——即大语言模型在长对话中因上下文窗口填满而导致输出质量下降的固有限制。GSD 不试图突破这一模型限制，而是围绕它设计了一整套工程化工作流：将项目状态完全外置到文件系统，通过结构化的九类文档维持”无状态 LLM + 有状态编排器”架构，让每个任务在全新的 20 万 token 上下文中执行，从而保证第 50 个任务与第 1 个任务具有相同的输出质量。
+
+GSD 的五步工作流（初始化 → 讨论 → 规划 → 执行 → 验证）构成了完整的 AI 辅助开发生命周期。每个阶段都配备了专门的多代理编排机制：四个并行研究员调查技术栈、功能、架构和风险；规划器与检查器循环迭代最多三次以生成通过验证的 XML 原子化计划；执行器按依赖关系分组为”波次”（Wave）并行执行，每个任务完成后立即提交原子化 Git 提交；验证器通过目标回溯验证确保代码库满足阶段承诺。
+
+本研究通过对 12 个维度的并行深度调研和交叉验证，识别出 GSD 的四大核心创新：（1）上下文工程的三层防御架构——结构化工件 + 全新子代理 + 主会话控制；（2）多代理编排的 Agentic Engine——33 个专职代理构成的完整流水线；（3）规格驱动的四层质量门控——预检、修订、升级、中止；（4）快速实验模式——Quick/Spike/Sketch 三种渐进式严谨度路径。
+
+研究同时揭示了 GSD 面临的关键挑战：工作树（Worktree）并发缺陷、范围缩减检测漏洞、验证器的误报风险、XML 格式对 Claude 生态的隐性锁定，以及 v1（提示框架）与 v2（基于 Pi SDK 的独立 CLI）之间的自动化定位分歧。
+
+从战略视角，本研究提取了四项跨维度洞察：GSD 的”反企业化”定位实际上创造了编码进系统的新型企业级复杂度；Context Rot 解决方案是与模型限制共存的工程回避策略而非突破；从提示框架到独立 CLI 的演进反映了 AI 工具从”寄生增强”到”独立宿主”的产业整合趋势；质量门控在”防蠢”与”防创造”之间存在内在张力，需要通过 Spike/Sketch 模式进行补救。
+
+展望未来，gsd-2 的 Headless 模式和自动推进能力可能推动 AI 编程向真正的自动化代理演进，但更大的根本性挑战在于：当 AI 模型本身解决 Context Rot 时，GSD 的核心价值主张将需要重新定位。无论 GSD 本身的演进如何，其开创的”状态外置 + 编排重置”范式已经超越了单一项目，可能成为所有复杂 AI 应用的通用架构原则。
+
+ 
+ 
+1. 项目概述与背景
+1.1 项目起源与创始人愿景
+1.1.1 从音乐制作人到”不写代码”的独立开发者
+GSD（Get Shit Done）的创始人 Lex Christopherson——网名 glittercowboy，也以艺名 TÂCHES 为外界所知——并非传统意义上的软件工程师。在创建 GSD 之前，他是一名拥有 14 年经验的音乐制作人 。这一背景解释了 GSD 设计哲学中强烈的”系统优化”取向：一名音乐人将十余年对音色、节奏与编排的敏感性，转化为对 AI 代理（AI Agent）工作流的精细调优。TÂCHES 在 GSD 的官方 README 中开宗明义地声明了自己的定位：“I’m a solo developer. I don’t write code — Claude Code does.” 1这一定位不是营销修辞，而是贯穿 GSD 架构的核心假设。传统软件开发框架通常预设用户是一名需要协调团队、管理流程、撰写文档的”工程管理者”。GSD 则反向假设用户是一名独立的创造者（creator），其目标是构建可工作的软件，而非表演工程管理仪式。中文技术社区将这一理念概括为”彻底隔离上下文，让每个任务都拿到干净的 200K 窗口” ——强调的是个体创作者与 AI 代理之间的纯粹协作关系，而非人类团队内部的层级协调。
+
+1.1.2 创建动机：对现有 Spec-Driven 工具的不满
+GSD 的诞生源于 TÂCHES 对既有 spec-driven development（规格驱动开发，简称 SDD）工具的系统性不满。在 GSD 的官方文档中，他明确点名了两类竞品：BMAD（Breakthrough Method for Agile AI-Driven Development）和 Speckit/SpecKit（GitHub 官方发布的规格驱动工具）1。BMAD 提供全生命周期框架，包含专门化的启发和修正工作流，支持 Quality Gates、Party Mode（多 Agent 协作模式）等企业级特性 。SpecKit 则拥有 75,000+ GitHub stars 和 GitHub 的机构背书，采用七阶段流水线：Constitution → Specify → Clarify → Plan → Tasks → Analyze → Implement 。
+
+在 TÂCHES 看来，这些工具的共性缺陷在于”让事情比实际需要复杂得多”（make things way more complicated than they need to be）1。具体而言，他批评的对象包括 sprint ceremonies（冲刺仪式）、story points（故事点）、stakeholder syncs（利益相关者同步会议）、retrospectives（回顾会议）和 Jira workflows 等构成传统企业敏捷方法论的要素。但更深层的批评指向”缺乏对构建目标的真正理解”（lack real big picture understanding of what you’re building）1——即在过度关注流程合规性的同时，工具本身并未真正提升 AI 代理对项目愿景和架构上下文的理解深度。
+
+这一批评在学术界获得了呼应。2026 年 2 月发表的 Agile V 论文将 GSD、BMAD 和 SpecKit 统一归类为 “productivity tooling”（生产力工具），而非 “process frameworks”（过程框架），并指出它们”优化 AI Agent 构建代码的方式，但既不规定独立验证（构建与测试共享上下文），也不提供监管可追溯性（无需求到测试的映射或审计追踪），更不设置人类治理门” 。
+
+1.1.3 “复杂性在系统中，不在工作流中”的设计哲学
+GSD 的核心设计哲学可以概括为一句话：“The complexity is in the system, not in your workflow”（复杂性在系统中，不在工作流中）。这一哲学包含两层含义。
+
+第一层是认知减负。用户可见的界面极为精简：几个以 /gsd- 为前缀的 slash command（斜杠命令），覆盖项目初始化（/gsd-new-project）、阶段讨论（/gsd-discuss-phase）、计划制定（/gsd-plan-phase）、执行实施（/gsd-execute-phase）和验证确认（/gsd-verify-work）等核心环节 1。这种精简不是功能的缺失，而是将用户从”如何做”（how）的决策中解放出来，专注于”做什么”（what）的定义。
+
+第二层是系统内部的精密工程。GSD 在后台实现了上下文工程（context engineering）、XML 提示格式化、子代理编排（subagent orchestration）、状态管理和质量门控（quality gating）等复杂机制 6。这些机制不是可选项，而是内置于系统运行的默认路径中。例如，每个执行计划采用 XML 结构化格式（<task>、<name>、<files>、<action>、<verify>、<done>），因为 Claude 模型在训练中被优化为识别 XML 标签作为结构边界，其可靠性高于 Markdown 标题 。这种对模型训练特征的深度利用，正是”复杂性在系统中”的典型体现。
+
+1.2 项目规模与社区生态
+1.2.1 GitHub 数据与增长轨迹
+GSD 于 2025 年 12 月 14 日在 GitHub 开源 。截至 2026 年 4 月 25 日，其主仓库（gsd-build/get-shit-done）已积累约 55,200 stars，全球排名 #348 。根据第三方排名数据，该项目在 2026 年 3 月的月度增长达到 22,615 stars，增长率 96%，位列月度飙升榜第 5 位 。Fork 数量约 4,600，贡献者（contributors）超过 127 人 。项目采用 MIT 许可证，允许自由使用、修改和商业应用。
+
+代码库本身的规模同样反映了活跃度：截至 v1.38.x，仓库包含超过 2,060 次提交（commits）和 278 个分支（branches）。安装器 bin/install.js 是一个 7,424 行、279 KB 的单文件 Node.js 脚本 9。agents/ 目录包含 31 个专门的 Agent 定义文件 ，commands/gsd/ 目录包含 57+ 个 slash command 定义 。
+
+值得关注的是 GSD 的版本演进速度。v1.30.0（2026-03-18）引入 GSD SDK 和 gsd-sdk auto 命令 ；v1.35.0（2026-04-11）新增 Cline、CodeBuddy、Qwen Code 三个运行时支持 ；v1.37.0（2026-04-17）新增 Spike/Sketch 命令、Agent size-budget 执行、并行讨论等特性 13。这一迭代节奏（约每 2-4 周一个 minor 版本）表明项目处于高度活跃的开发期。
+
+1.2.2 社区移植生态：碎片化创新与上游合并
+GSD 的开源生态呈现出典型的”碎片化创新”（fragmented innovation）模式。由于最初仅支持 Claude Code，而 AI 编程工具生态中存在 15+ 个运行时平台，社区迅速产生了多个移植版本（community ports）。这些移植不仅复制了 GSD 的核心功能，还针对特定平台的架构差异添加了原创功能。
+
+下表梳理了主要社区移植版本的状态、创新贡献与演进命运：
+
+项目
+目标平台
+维护状态
+核心创新
+与上游关系
+gsd-opencode
+OpenCode
+活跃但意义递减
+简化的三级模型配置（simple/smart/genius）
+官方已原生支持 OpenCode
+gsd-gemini
+Gemini CLI
+已归档
+首个 Gemini CLI 适配
+功能完全并入官方 1
+get-shit-done-multi
+多平台（含 Copilot）
+已归档
+Copilot 支持、/gsd-autonomous 命令、模板同步系统 1
+Copilot 支持通过 PR #911 合并到上游
+get-shit-done-antigravity
+Antigravity
+活跃
+Super Mode、Anti-Hallucination Engine、Project Memory（约 60% 为原创功能）1
+独立演进，因多模型架构需求独特
+get-shit-done-cursor
+Cursor IDE 等
+独立 fork
+为 Cursor 使用 slash 语法，为 Claude 使用 colon 语法 1
+未合并
+gsd-tdd
+Claude Code
+活跃
+以测试驱动验证替代 AI 验证器
+独立 fork
+这一生态的动态揭示了 AI 工具领域的一个结构性特征：平台差异（工具系统、上下文机制、API 设计）催生了需求差异，而社区分叉可以比上游更快地实验新功能。成功的社区创新面临两条路径——被上游合并（如 get-shit-done-multi 的 Copilot 支持），或因平台独特性而持续独立演进（如 get-shit-done-antigravity）。GSD 官方 README 明确承认了 gsd-opencode 和 gsd-gemini 的”先驱”（pioneered）地位，将其多运行时支持的开创性贡献写入官方文档 1。
+
+1.2.3 企业采用声明的审慎评估
+GSD 的官方文档声称被”Amazon、Google、Shopify 和 Webflow 的工程师信任”（Trusted by engineers at Amazon, Google, Shopify, and Webflow）1。这一声明出现在 README、npm 包页面和多个第三方镜像中，是 GSD 核心营销材料的一部分。
+
+从证据强度角度分析，该声明属于”低置信度”发现 。具体而言：声明未提供具体引用、未披露信任工程师的数量或部门、未提供可独立验证的案例研究。截至本报告撰写时，无法区分该声明指的是这些公司的官方团队采用，还是个别工程师的个人使用。GitHub 上的 star 和 fork 数据同样无法直接映射到企业级采用——55,000+ stars 中绝大多数来自个人开发者账户。
+
+需要指出的是，即使仅限于个人使用，来自大型科技公司工程师的认可仍具有信号价值。它表明 GSD 的设计假设（solo developer + AI 代理的工作模式）在拥有企业级开发经验的专业人群中获得了认同。但将这一信号解读为”企业级工具”或”官方采用”则超出了现有证据所支持的范围。
+
+1.3 核心定位与技术支柱
+1.3.1 三大技术支柱：元提示、上下文工程与规格驱动开发
+GSD 的技术架构建立在三大支柱之上，这一组合构成了其区别于其他 AI 开发工具的核心竞争力。
+
+元提示（Meta-Prompting） 指的是不直接要求 AI 编写代码，而是提示 AI 生成用于指导其他 AI 的提示。在 GSD 中，这一机制体现为 31 个专门的 Agent 定义文件（agents/*.md），每个文件包含完整的角色定义、方法论、工具策略、输出格式和执行流程 10。例如，gsd-planner Agent 被定义为”创建可执行的阶段性计划”，其提示模板规定了如何理解项目目标、如何分解任务、如何定义验证标准。这些 Agent 定义本质上是”提示的提示”——它们不直接解决用户问题，而是塑造解决过程的结构。
+
+上下文工程（Context Engineering） 是 GSD 最显著的技术创新。其核心理念是：LLM（Large Language Model，大语言模型）的上下文窗口不是存储，而是计算缓存；所有持久化状态应外置于文件系统 。GSD 通过 .planning/ 目录实现这一理念，该目录包含 9+ 种结构化文件类型：PROJECT.md（项目愿景）、REQUIREMENTS.md（可检查需求）、ROADMAP.md（执行路线）、STATE.md（跨会话活跃记忆）、PLAN.md（执行计划）、SUMMARY.md（执行总结）、CONTEXT.md（阶段上下文）、RESEARCH.md（研究发现）和 VERIFICATION.md（验证报告）。每个文件有精确的大小限制——例如 STATE.md 约 100 行，PLAN.md 约占用 50% 上下文窗口——以防止 Claude 的上下文质量退化 18。
+
+规格驱动开发（Spec-Driven Development，SDD） 是 GSD 的方法论基础。它要求在任何代码编写之前，先通过讨论阶段（discuss phase）澄清需求、通过规划阶段（plan phase）生成 XML 结构化的执行计划、通过验证阶段（verify phase）确认实现与规格的一致性 1。这一方法论的核心设计是 Goal-Backward Planning（目标逆向规划）：不问”应该构建什么”，而问”目标实现需要什么条件为真” 。其效果是每个任务不仅是一份待办事项，而是理解自身与其他任务关系的可执行单元。
+
+1.3.2 目标用户画像：谁在使用 GSD
+GSD 的目标用户画像可以从其设计假设中逆向推导。TÂCHES 的自我描述——“我不是一家 50 人的软件公司，不想玩企业角色扮演” 1——精确地排除了大型工程团队和传统企业开发场景。相反，GSD 为以下三类用户优化：
+
+第一类是 solo developers（独立开发者），即一人承担设计、开发、测试和部署的创造者。这类用户不需要协调人类团队成员，但需要协调多个 AI 代理之间的分工。GSD 的 thin orchestrator（薄编排器）模式——编排器从不做重活，只负责生成代理、等待结果、整合输出、路由下一步——恰好匹配这一需求 1。
+
+第二类是 小型团队（2-5 人），其中每个成员都直接参与编码，不存在专职的项目经理或 Scrum Master。GSD 的原子化 Git 提交（{type}({phase}-{plan}): {desc} 格式）和自动状态跟踪功能，为小型团队提供了”足够好的治理”（good enough governance），而不强加过度流程 1。
+
+第三类是 追求可靠执行但拒绝过度流程的技术人员。中文技术社区将 GSD 定位为”第二阶段工具”——即团队已经具备一定的规范基础，需要的是执行增强、上下文治理和长任务推进能力 。这与 Spec Kit 等”第一阶段工具”（侧重规格建设和规范定义）形成互补关系 20。
+
+值得注意的是，用户反馈中同时存在正面和负面评价。正面评价集中于”结构使 AI 输出从混乱变为可靠”——一位开发者报告其作品集从”AI 生成代码的混乱集合”转变为”具有清晰历史、原子提交、功能匹配意图的结构化项目” 6。负面评价则指出 GSD”太慢、太详细”，对于简单项目开销不划算 。这种分化恰恰印证了 GSD 的用户画像定位：它不是为所有开发者设计的通用工具，而是为愿意以结构化换取可靠性的特定人群优化的专用系统。
+
+1.3.3 与 Claude Code 的关系：增强层而非替代层
+理解 GSD 的关键在于澄清它与 Claude Code（以及更广泛的 AI 编程运行时生态）的关系。GSD 不是 Claude Code 的替代品，而是在其之上构建的规划和编排增强层。
+
+在 v1 架构中，GSD 通过 npx get-shit-done-cc@latest 安装，将 Markdown 格式的命令定义、Agent 角色和 Hook 脚本注入目标运行时的配置目录（如 ~/.claude/skills/）1 9。Claude Code 提供底层的工具调用能力（Read、Write、Bash、Task 等），GSD 提供上层的”何时调用什么工具、以什么顺序、在什么约束下”的编排逻辑。正如第三方技术分析所指出的：“GSD doesn’t just specify. It orchestrates” 4。
+
+在 v2（gsd-2）架构中，这一关系进一步深化。GSD 从一个”提示框架”（prompt framework）演进为基于 Pi SDK 的独立 TypeScript CLI，获得了对 Agent 会话的直接程序控制能力 。这意味着 GSD 可以”实际做 v1 只能请求 LLM 做的事”：清除任务间上下文、在分派时精确注入所需文件、管理 Git 分支、跟踪成本和 token、检测卡住的循环、从崩溃中恢复 22。但这一演进并未改变底层关系——Claude Code 仍是执行引擎，GSD 仍是规划和编排层。
+
+这种”增强而非替代”的定位具有重要的战略含义。它意味着 GSD 的价值与底层运行时的能力紧密耦合，但也意味着 GSD 可以随运行时的演进持续获益。例如，当 Claude Code 从 200K 上下文窗口扩展到 1M tokens 时，GSD 的上下文工程策略会自动获得更大的操作空间 1。当新的 AI 编程工具（如 Qwen Code、CodeBuddy）出现时，GSD 通过其多平台安装器可以在数周内完成适配 13。
+
+ 
+2. 五步工作流：运作机制详解
+
+
+GSD 五步工作流流程图
+上图展示了 GSD 从原始创意到验证交付的完整五步闭环。每个阶段由专门的 orchestrator 协调，输入前序阶段的结构化文档，输出可供下一阶段消费的新文档。本章将逐阶段拆解其内部机制，揭示”复杂性在系统中，不在工作流中”这一设计哲学的工程实现。
+
+2.1 初始化阶段（/gsd-new-project）
+2.1.1 Questioning 机制：自适应提问直至完全理解
+GSD 的初始化并非简单的表单填写，而是一种被称为 “Dream-extraction philosophy”（愿景提取哲学）的深层对话机制。系统启动后进入自适应提问（adaptive questioning）模式，持续追问直到完全理解用户的项目愿景——涵盖目标、约束、技术偏好和边缘案例1。这一机制由 get-shit-done/references/questioning.md 定义，被归类为 Core References，所有后续决策均建立在其提取的上下文之上23。
+
+提问支持两种配置模式。discuss 模式（默认）采用一问一答的对话式交互，适合新代码库或用户有强烈表达意愿的场景。assumptions 模式则系统先通过子代理深度读取代码库（5-15 个相关文件），生成带置信度和证据引用的结构化假设，仅要求用户纠正错误部分24。后者将交互次数从 discuss 模式的约 15-20 次压缩到 2-4 次，效率提升约 5-10 倍。两种模式均通过 workflow.discuss_mode 配置项控制，按项目持久化存储于 .planning/config.json25。
+
+对于已有代码库（brownfield）的项目，初始化前必须先运行 /gsd-map-codebase。该命令启动四个并行的 codebase-mapper 代理（tech、arch、quality、concerns），分别产出 STACK.md、ARCHITECTURE.md、CONVENTIONS.md 和 CONCERNS.md 等七个结构化文档1。随后 new-project 的提问聚焦于”正在添加什么”而非”已存在什么”，规划阶段也会自动加载既有代码库的模式1。
+
+2.1.2 Research 子阶段：4 个并行研究代理
+Questioning 完成后，系统可选择性地启动四个并行研究子代理（subagent），分别聚焦于技术栈（Stack）、功能特性（Features）、架构模式（Architecture）和潜在陷阱（Pitfalls）。每个代理在独立的 200K token 上下文中运行，将发现写入 .planning/research/ 目录下的对应文件（STACK.md、FEATURES.md、ARCHITECTURE.md、PITFALLS.md），最后由合成代理汇总为 SUMMARY.md1。
+
+研究阶段受 workflow.research 配置项控制，默认开启但可关闭24。第三方实测报告记录了完整的四路研究流程：Stack researcher 调查 Go 版本兼容性和库选择；Features researcher 分析 SBOM 格式细节和匹配策略；Architecture researcher 研读 CycloneDX/SPDX 规范及 API；Pitfalls researcher 识别解析器边缘案例和传递依赖图复杂度26。每个研究事实声明必须标注置信度标签——[VERIFIED]（通过工具确认）、[CITED]（引用官方文档）或 [ASSUMED]（基于训练知识，需用户确认）。
+
+2.1.3 Requirements 提取与 Roadmap 创建
+需求提取阶段执行严格的 三层划分：v1（Must-have，当前版本必须实现的核心需求）、v2（Nice-to-have，未来版本可实现）、out-of-scope（明确排除）1。每个需求分配唯一 ID 并建立 phase traceability（阶段可追溯性），确保 REQUIREMENTS.md 中的需求可追踪到 ROADMAP.md 中的具体实现阶段。
+
+Planner 代理在此阶段即被施加 Scope Reduction Prohibition（范围缩减禁止）原则——明确禁止从需求中删除内容。用户决策被严格分类为三类：Locked Decisions（D-01、D-02 等，必须精确实现并在任务中引用决策 ID）、Deferred Ideas（绝对不能出现在计划中）、以及 Claude’s Discretion（AI 可自行判断但需记录选择）29。
+
+Roadmap 创建阶段将需求映射为可执行的 Phase 结构。用户可选择三种粒度配置：Coarse（粗粒度，3-5 个 Phase）、Standard（标准，5-8 个 Phase）、Fine（细粒度，8-12 个 Phase）。每个 Phase 包含 1-3 个 Plan，每个 Plan 包含 2-3 个原子任务。Roadmap 在项目生命周期中允许动态调整——/gsd-add-phase 追加、/gsd-insert-phase [N] 插入紧急工作、/gsd-remove-phase [N] 移除并重新编号1。
+
+2.1.4 生成的核心文档：内容结构与作用
+初始化阶段产出四份核心文档，构成项目的”外部长期记忆”系统。这些文档不是装饰性文件，而是整个系统真正依赖的运行层——Orchestrator 和 Agents 直接读取、解析并据此行动。
+
+文档
+作用定位
+加载策略
+核心内容
+大小约束
+PROJECT.md
+项目愿景与核心上下文
+始终加载到所有 Agent
+项目目标、价值主张、技术栈、关键决策
+基于 Claude 质量退化阈值 34
+REQUIREMENTS.md
+分层需求约定
+Planner、Verifier、Auditor
+v1/v2 需求列表（带唯一 ID）、out-of-scope 列表、phase traceability 映射
+同上
+ROADMAP.md
+阶段结构与进度跟踪
+Orchestrator
+Phase 列表（编号、名称、目标、状态）、与 Requirement ID 的映射、完成状态追踪
+同上
+STATE.md
+跨会话活的记忆
+所有 Agent（决策、阻塞）
+当前 Phase/Plan、进度状态、最近 3-5 个决策、Blockers、Metrics、Session Continuity、Pending Todos
+约 100 行 35
+上表所列的四份文档构成了 GSD 上下文工程（context engineering）的基石。其关键设计在于大小限制——每个文档的容量上限基于 Claude 输出质量开始下降的上下文阈值，主会话上下文窗口始终保持在 30-40%34 19。STATE.md 使用 YAML frontmatter 格式，可通过 CLI 工具解析（node gsd-tools.cjs state json 输出 frontmatter 为 JSON，snapshot 结构化解析完整文件），返回字段包括 current position、phase、plan、status、decisions、blockers、metrics 和 last activity。
+
+对于已有详细愿景文档的用户，初始化支持 --auto 模式（/gsd-new-project --auto @idea.md），跳过深度提问，直接从提供的文档提取上下文，自动运行 research → requirements → roadmap 全流程30。所有工作流偏好最终写入 .planning/config.json，控制粒度（Coarse/Standard/Fine）、执行模式（Interactive/YOLO）、Git Tracking、Research 开关、Plan Check 和 Verifier 等全局行为。
+
+2.2 讨论阶段（/gsd-discuss-phase）
+2.2.1 Gray Areas 识别：基于构建类型的隐性决策点捕获
+讨论阶段的存在源于一个核心问题：ROADMAP.md 中每个 Phase 仅有一两句话描述，远不足以让 AI 按用户想象的方式构建1。如果没有这一步骤，Claude 会做假设（make assumptions），结果是代码能工作，但不是按用户设想构建的。
+
+Gray areas（灰色区域）指那些”有多种合理实现方式的决策点”——roadmap 描述不明确、需要用户做出偏好选择的区域。系统基于正在构建的内容类型自动识别 gray areas，涵盖四大领域1：
+
+构建类型
+Gray Areas 关注点
+典型决策示例
+Visual features（UI/前端）
+Layout, density, interactions, empty states
+卡片布局或列表布局？信息密度高或低？点击或悬停交互？空状态如何展示？
+APIs/CLIs（后端/工具）
+Response format, flags, error handling, verbosity
+REST 或 GraphQL？错误响应格式？分页策略？verbose 或简洁模式？
+Content systems（文档/内容）
+Structure, tone, depth, flow
+章节式或卡片式结构？正式或 casual 语气？内容深度层级？
+Organization tasks（数据/组织）
+Grouping criteria, naming, duplicates, exceptions
+分组标准？命名约定？重复数据如何处理？例外情况定义？
+上表的四类 gray areas 体系是官方文档的核心分类定义1。在 Mintlify 文档的 commands 页面中，该分类进一步细化为六项：UI（layout, density, interactions, states）、API（responses, errors, auth, versioning）、CLI Tool（output format, flags, modes, error handling）、Documentation（structure, tone, depth, flow）、Data Organization（criteria, grouping, naming, exceptions）。系统智能生成 3-4 个 phase-specific 的 gray areas，而非通用模板，并且会自动跳过在 prior phases 中已决定的区域40。
+
+每个 gray area 的提问遵循固定节奏：先问 4 个问题，然后检查是否需要继续；用户可以选择”更多问题”或”下一个区域”，形成迭代式深度探索40。Phase 边界从 ROADMAP.md 导入后是 FIXED（固定的）——讨论只澄清 HOW（如何实现），不讨论 WHETHER（是否添加功能）。如果用户提出新能力，系统会回应”那是另一个 phase，我会记录到后期”40。
+
+2.2.2 CONTEXT.md 生成与下游消费机制
+讨论阶段的最终产出是 {phase}-CONTEXT.md，存储于 .planning/phases/XX-phase-name/ 目录28。无论使用 discuss 还是 assumptions 模式，输出的 CONTEXT.md 都有相同的 6 个标准部分25：
+
+<domain> — Phase boundary，界定本阶段交付什么
+<decisions> — Locked implementation decisions，编号决策项（D-01, D-02…），下游必须遵循
+<canonical_refs> — 下游 Agent 必须阅读的 specs/docs，v1.23.0 起成为强制要求4. <code_context> — 可复用资产、模式、集成点，减少重复研究
+<specifics> — 用户引用和偏好
+<deferred> — 未来 phase 的创意，防止 scope creep
+CONTEXT.md 的核心价值在于下游消费机制的三级传播链。Researcher 读取它以了解需要研究什么模式——例如”用户想要卡片布局”→ 研究卡片组件库1。Planner 读取它了解哪些决策已锁定——例如”infinite scroll 已决定”→ 计划必须包含滚动处理1。Plan phase workflow 明确要求：如果 CONTEXT.md 存在，必须尊重用户愿景，锁定决策不可再讨论29。Executor 在 200K+ context window 模式下也会读取 CONTEXT.md 来遵循用户锁定的选择。
+
+为确保 discuss 阶段的决策 survive 到 plans 和 shipped code，GSD 在 v1.x 引入了 Decision Coverage Gates（决策覆盖门）机制28。该设计采用刻意不对称的策略：plan-phase 的 translation gate 是 blocking 的——plan 完成后，系统拒绝标记 phase 为 planned，直到每个可追踪决策至少出现在一个 plan 的 must_haves、truths 或 body 中28。verify-phase 的 validation gate 是 non-blocking 的——验证时搜索 plans、SUMMARY.md、修改文件和 commit message 中每个可追踪决策，遗漏项作为 warning 记录到 VERIFICATION.md，不改变验证状态28。这种不对称的设计哲学是：blocking gate 在 plan 时修复很便宜，在 verify 时 hostile（敌对）28。
+
+2.3 规划阶段（/gsd-plan-phase）
+2.3.1 Goal-Backward Planning：从目标逆向推导可观察条件
+GSD 的规划阶段采用一种与传统正向规划根本不同的方法论：Goal-Backward Planning（目标逆向规划）19。其核心思想是不问”应该构建什么”，而问”目标实现需要什么条件为真”（what conditions must be true for the goal to be achieved），然后逆向推导计划和任务19。TÂCHES 表示这一方法”massively improved output quality”（大幅提升了输出质量），因为每个任务理解其与其他任务的关系，而非仅是待办事项列表中的一项19。
+
+正向规划与目标逆向规划的对比如下：正向规划是”构建认证系统 → 任务列表”；目标逆向规划是”用户可以安全访问账户 → 推导必须存在什么”24。gsd-planner 执行 must_haves 推导的 5 步流程为：陈述目标（结果，不是任务）→ 推导 3-7 个用户视角的可观察行为（observable truths）→ 推导需要的具体文件（artifacts）→ 推导需要的连接关系（wiring）→ 识别关键连接（key links）29。
+
+must_haves 在 PLAN.md frontmatter 中结构化存储，包含 truths（可观察行为，如”用户能用邮箱登录”）、artifacts（必须存在的文件及其提供的能力）和 key_links（组件间连接及实现模式）26 。Planner 对每个 must-have artifact 执行 Reachability Check（可达性检查）：Entity 必须有创建路径、Workflow 必须能被用户行为或 API 触发、Config flag 必须有默认值加消费者、UI 必须有路由或导航链接。如果 UNREACHABLE（无路径），则修订计划29。
+
+2.3.2 XML 原子化计划：PLAN.md IS the prompt
+GSD 使用 XML 标签（而非 Markdown 标题）作为结构化边界，因为 Claude 模型被专门训练识别 XML 标签作为结构分隔符7。这一选择并非中性格式偏好，而是深度绑定 Claude 训练特征的生态决策——Markdown 标题的结束位置并不总是清晰，而 XML 标签提供了明确的解析边界7。
+
+每个 PLAN.md 的核心设计哲学是 “PLAN.md IS the prompt”（PLAN.md 就是提示本身）——它不是”会变成提示的文档”，而是包含目标、上下文引用、任务（带验证标准）和成功标准的可直接执行单元29 34。文件遵循严格的命名规范 {padded_phase}-{NN}-PLAN.md，例如 Phase 1, Plan 1 → 01-01-PLAN.md29。
+
+每个 task 包含五个核心 XML 字段38 29：
+
+<task type="auto">
+ <name>Create login endpoint</name>
+ <files>src/app/api/auth/login/route.ts</files>
+ <action>
+   Use jose for JWT (not jsonwebtoken - CommonJS issues).
+   Validate credentials against users table.
+   Return httpOnly cookie on success.
+ </action>
+ <verify>curl -X POST localhost:3000/api/auth/login returns 200</verify>
+ <done>Valid credentials return cookie, invalid return 401</done>
+</task>
+
+task 类型分为四种29：auto（完全自主，Claude 独立完成）、checkpoint:human-verify（视觉/功能验证，暂停等待用户）、checkpoint:decision（实现选择，暂停等待用户）、checkpoint:human-action（不可避免的手动步骤，暂停等待用户）。自动化优先规则（Automation-first rule）规定：如果 Claude 能通过 CLI/API 完成，就必须自动完成，checkpoints 仅在自动化后验证，而非替代自动化29。
+
+2025 年后，gsd-planner 引入强制的 Deep Work Rules（深度工作规则），防止”浅层执行”。每个 task 必须包含 <read_first>（执行器在触碰任何文件前必须读取的文件）、<acceptance_criteria>（可验证条件，禁止使用”看起来正确”等主观语言）和包含具体值的 <action>（禁止”将 X 与 Y 对齐”等模糊表述，必须指定精确的目标状态）44。此外，Nyquist Rule（奈奎斯特规则）要求每个 <verify> 必须包含 <automated> 命令；如果测试不存在，必须设置 Wave 0 任务先创建测试脚手架29。
+
+2.3.3 8 维度计划验证与修订循环
+gsd-plan-checker 代理在 plan 创建后执行 8 个验证维度 的对抗性审查（adversarial stance）——假设每套计划都有缺陷，直到证据证明 otherwise39。每个 issue 标注 BLOCKER 或 WARNING 严重级别 39：
+
+验证维度
+检查内容
+关键红线
+1. Coverage
+Plans 是否实现 phase goal
+需求 zero tasks 覆盖、多个需求共享模糊 task
+2. Completeness
+所有 phase requirement 是否映射到 task
+requirement 部分覆盖
+3. Atomicity
+每个 plan 2-3 个 task，可在单一上下文中完成
+超过 3 个 task / 超过 5 个文件
+4. Clarity
+Task 有明确的 action 和 verification
+主观语言、模糊引用
+5. Dependency logic
+Wave 分配是否合理
+循环依赖、未来引用
+6. Decision fidelity
+用户锁定决策是否被遵守
+锁定决策未被引用、范围缩减
+7. Traceability
+Requirement ID 存在于 plan frontmatter
+ID 缺失
+8. Validation (Nyquist)
+每个 task 都有 automated verify 命令
+反馈延迟评估（E2E 套件 → WARNING）
+上表 8 个维度构成了 plan-phase 的质量门控体系。前 7 个维度聚焦于计划本身的结构性质量，第 8 个维度（Nyquist Validation）是 GSD 的独特创新——在规划阶段就将自动化测试覆盖映射到每个阶段需求，确保代码编写前反馈机制已存在。
+
+plan-phase 运行 修订循环（Revision Loop）：gsd-planner 产生 PLAN.md → gsd-plan-checker 审查 → 如有问题 planner 修订 → 重新检查。最多 3 轮迭代 44。2026 年 4 月的 issue #1716 提出了停滞检测（stall detection）增强——如果同一阻断问题在连续两次迭代中出现，提前终止循环47。plan-phase.md 步骤 12 已实现基本的 stall 检测：如果 issue_count >= prev_issue_count，显示”Revision loop stalled”并询问用户是否继续44。
+
+2.4 执行阶段（/gsd-execute-phase）
+2.4.1 Wave-Based 并行执行与 Fresh 200k Context
+执行阶段将规划阶段生成的 PLAN.md 文件按依赖关系分组为 waves（波次），每个 wave 内的 plans 并行运行，waves 之间按依赖顺序串行执行1。编排器通过解析每个 PLAN.md frontmatter 中的 depends_on 和 files_modified 字段构建依赖图29。
+
+Wave
+Plan
+内容
+depends_on
+files_modified
+Wave 1 (并行)
+01-01-PLAN.md
+数据库 schema + 用户模型
+[]
+src/models/user.ts, prisma/schema.prisma
+Wave 1 (并行)
+01-02-PLAN.md
+API 类型定义 + 中间件
+[]
+src/types/api.ts, src/middleware/auth.ts
+Wave 2 (并行)
+01-03-PLAN.md
+用户端点实现
+[01-01, 01-02]
+src/api/users.ts
+Wave 2 (并行)
+01-04-PLAN.md
+认证流实现
+[01-02]
+src/api/auth.ts
+Wave 3 (串行)
+01-05-PLAN.md
+集成测试
+[01-03, 01-04]
+tests/integration/auth.test.ts
+上表展示了典型的 wave 分组逻辑。Wave 1 中两个 plan 无依赖且文件不重叠，可并行执行。Wave 2 的两个 plan 分别依赖 Wave 1 的不同产物，只要它们之间无文件冲突也可并行。Wave 3 依赖 Wave 2 的全部产物，需等待 Wave 2 完成后执行。同一 wave 的 plans 之间必须零 files_modified 重叠——如果任何文件出现在 2+ plans 中，后面的 plan 必须 bump 到下一个 wave29。
+
+每个 plan 在 全新的 200k token 上下文 中执行，零累积垃圾1 。这是 GSD 最核心的创新之一：AI 永远在”清醒”的状态下写代码，不会被之前的对话历史干扰19。TÂCHES 的直播演示中，完成 3 个完整 phase 后主上下文窗口仅使用 24%；执行 10 个 plan 后仍低于 50%19。编排器自身只使用约 10-15% 的上下文用于协调，所有重活交给 fresh 200k 子代理45。
+
+执行阶段采用 Thin Orchestrator + Specialized Subagent 模式：编排器只负责协调，不做具体执行——发现 plans → 分析依赖 → 分组为 waves → 生成子代理 → 处理检查点 → 收集结果42。编排器明确不读取代码库文件、不写实现代码、不做规划决策、不执行验证45。
+
+2.4.2 原子化 Git 提交与四级目标验证
+每个 task 完成后立即获得独立的 原子化 Git 提交，格式为 {type}({phase}-{plan}): {concise task description}，例如 feat(08-02): add email confirmation flow1 。Commit 类型包括 feat、fix、test、refactor、perf、docs、style、chore，每个提交都是外科式的、可追踪的、有意义的1。益处包括：git bisect 精确定位失败任务、每个任务独立 revert、为 future Claude sessions 提供清晰历史1。
+
+在并行 worktree 模式下，每个执行器代理使用 --no-verify 进行 git commit 以避免与其他代理的 pre-commit hook 竞争，编排器在所有代理完成后统一验证 hooks42。如果配置了 sub_repos，GSD 使用 commit-to-subrepo 将文件路由到正确子仓库，返回每个仓库的 commit hash49。
+
+执行后的验证不盲信 SUMMARY.md 的声明——“DO NOT trust SUMMARY.md claims”是验证器的关键心态26。验证器实现 四级验证体系45 26 ：
+
+Truths（事实） — 必须可验证为真（“用户能用邮箱登录”）
+Artifacts（产物） — 文件/功能必须存在且有实质内容，非占位符或 stub
+Key Links（关键连接） — 组件之间的连接必须工作（API 被正确调用、props 被传递）
+Data-Flow Trace（数据流追踪） — 即使产物通过前三级验证，仍可能是”空壳”；第四级从产物向上游验证真实数据是否流经连接（状态：FLOWING / STATIC / DISCONNECTED / HOLLOW_PROP）50### 2.5 验证阶段（/gsd-verify-work）
+2.5.1 对话式 UAT 与自动诊断修复闭环
+/gsd-verify-work 运行对话式用户验收测试（UAT），通过持久状态跟踪测试进度，生成 {phase}-UAT.md 文件。该文件能在 /clear 后恢复，并将发现的 gaps 反馈给 /gsd-plan-phase --gaps51。
+
+UAT 采用”展示预期结果，询问现实是否匹配”的设计哲学51。Claude 呈现 SHOULD happen 的内容，用户确认或描述差异——“yes”/“y”/“next”/空 → pass，其他内容 → 记录为 issue，严重程度自动推断51。系统内置严重程度推断规则：“crashes”、“error”、“exception” → blocker；“doesn’t work”、“wrong behavior” → major；“works but…”、“slow”、“weird” → minor；“color”、“spacing” → cosmetic51。默认归类为 major，用户可纠正。系统从不主动询问”how severe is this”——推断后直接推进51。
+
+UAT 工作流还包含 冷启动冒烟测试注入：如果检测到 server.ts、database/、migrations/、docker-compose* 等文件被修改，自动将冷启动测试注入列表最前面，捕获仅在全新启动时暴露的问题51。
+
+当 UAT 发现问题时，系统自动产生 并行 debug agent 诊断根因，然后由 planner 创建修复计划，再经 plan-checker 验证（最多 3 次迭代），最后通过 /gsd:execute-phase --gaps-only 执行修复51。这一自动诊断→修复计划→验证→执行的闭环最多运行 3 次迭代51。
+
+2.5.2 Verifier Agent：目标回溯验证与 Stub 检测
+gsd-verifier agent 的核心哲学是 Task Completion ≠ Goal Achievement（任务完成 ≠ 目标达成）。一个 task “创建聊天组件”可以在组件只是一个占位符时被标记为完成——任务完成了，但目标”可工作的聊天界面”并未达成26。因此 verifier 采用目标回溯分析法：从”应该交付的结果”出发反向验证代码库52。
+
+Verifier 执行 三级证据检查26：存在级（Level 1，文件是否存在）、实质级（Level 2，内容是否有实质而非占位符）、连接级（Level 3，组件间是否正确连接）。官方文档明确禁止跳过连接级验证——“DO NOT skip key link verification — This is where 80% of stubs hide”26。
+
+Verifier 生成结构化的 {phase}-VERIFICATION.md，包含 YAML frontmatter（phase、verified timestamp、status、score、gaps）和正文（Observable Truths 表格、Required Artifacts 表格、Key Link Verification 表格、Requirements Coverage、Anti-Patterns Found、Human Verification Required、Gaps Summary）52。支持再验证模式：如果存在之前的 VERIFICATION.md 且有 gaps，对已通过项执行快速回归检查，对失败项执行完整三级验证26。
+
+验证完成后，如果 security enforcement 启用且 SECURITY.md 不存在，系统阻止自动进入下一阶段，强制要求先运行 /gsd-secure-phase51。/gsd-secure-phase 启动 gsd-security-auditor agent，对已完成阶段进行威胁缓解措施的追溯验证，产出 {phase}-SECURITY.md。security_enforcement 配置默认为 true，可在 /gsd-settings 中关闭。
+
+ 
+3. 技术架构分析
+GSD 的技术架构并非一个传统意义上的软件框架——它不暴露 API，不定义接口，而是将”提示工程”（Prompt Engineering）和”上下文管理”（Context Management）作为一级工程问题来系统性解决。其核心设计哲学可概括为：将复杂度隐藏在系统内部，将简洁留给用户交互界面。这一哲学通过五个相互咬合的架构层次实现：命令入口层、工作流编排层、Agent 执行层、确定性工具层和状态持久化层。以下从安装分发机制切入，逐层剖析其技术实现细节与工程权衡。
+
+3.1 安装与分发机制
+3.1.1 单文件安装器与多运行时适配
+GSD 的唯一分发入口是 npm 包 get-shit-done-cc，用户通过 npx get-shit-done-cc@latest 执行安装。该命令的入口是 bin/install.js——一个 7,424 行、279 KB 的单文件 Node.js 脚本 9。这种”单文件巨石”（monolithic single-file）设计在工程上并不优雅，但它确保了用户在任意具备 Node.js（≥22.0.0）的环境中，只需一条命令即可完成完整部署，无需处理依赖解析或构建步骤。根目录 package.json 仅声明了两个运行时依赖：@anthropic-ai/claude-agent-sdk (^0.2.84) 和 ws (^8.20.0)；而核心的 install.js 与 gsd-tools.cjs 完全使用 Node.js 内置模块实现 40。这种”零外部依赖”的构建策略最大限度地降低了跨平台部署的摩擦。
+
+安装器支持 15 个 AI 运行时平台的原生安装，包括 Claude Code、OpenCode、Gemini CLI、Kilo、Codex、Copilot、Cursor、Windsurf、Antigravity、Augment、Trae、Qwen Code、CodeBuddy 和 Cline，外加 --all 参数用于一次性全局安装 。安装过程通过命令行标志（如 --claude、--codex、--qwen）或交互式多选界面确定目标运行时，随后执行八个步骤：运行时检测与路径解析、Skills/Commands 转换与安装、路径重写、Agents 安装、Hooks 安装、gsd-tools.cjs 与 get-shit-done/ 目录复制、gsd-sdk 构建与全局安装、以及文件清单写入 9。其中，文件清单 gsd-file-manifest.json 记录版本、平台、作用域、时间戳和文件哈希映射，用于更新检测和完整性校验 。
+
+不同运行时的安装路径遵循各自生态的约定，如下表所示。三种安装格式并存——Skills（目录化，Claude Code 2.1.88+ / Qwen Code / Codex / CodeBuddy）、Commands（传统单文件，OpenCode / Gemini / Cursor 等大多数平台）和 Rules（Cline 特有的 .clinerules 文件）。这一多格式适配策略意味着安装器必须在源码层面维护 15 套路径映射和格式转换逻辑。
+
+运行时
+全局安装路径
+本地安装路径
+安装格式
+命令前缀
+Claude Code
+~/.claude/skills/
+./.claude/skills/
+Skills
+/gsd: 55
+OpenCode
+~/.config/opencode/
+./.opencode/
+Commands
+/gsd- 55
+Gemini CLI
+~/.gemini/
+./.gemini/
+Commands
+/gsd: 55
+Codex
+~/.codex/skills/
+./.codex/skills/
+Skills
+$gsd-
+Copilot
+~/.github/
+./.github/
+Instructions
+/gsd: 55
+Cursor
+~/.cursor/
+./.cursor/
+Commands
+/gsd- 55
+Windsurf
+~/.codeium/windsurf/
+./.windsurf/
+Commands
+/gsd- 55
+Qwen Code
+~/.qwen/skills/
+./.qwen/skills/
+Skills
+/gsd:
+Cline
+~/.cline/
+./.cline/
+Rules (.clinerules)
+N/A 28
+CodeBuddy
+~/.codebuddy/skills/
+./.codebuddy/skills/
+Skills
+/gsd-
+安装器在路径处理上已暴露出工程债务。Issue #1734 揭示了 copyCommandsAsClaudeSkills 函数（位于 install.js 第 3709-3752 行）虽然接受 pathPrefix 参数但从未实际使用，导致本地安装时 123 处 ~/.claude/get-shit-done/ 路径引用未被重写，7 个以上 skills 指向不存在的全局路径 。类似地，Issue #2598 记录了 Windows 平台上 spawnSync('npm.cmd') 因缺少 shell: true 参数而失败的 bug 。这些 Issue 表明，随着支持平台从早期的 3-4 个膨胀到 15 个，安装器的维护复杂度呈超线性增长。
+
+3.1.2 Skills 动态生成机制
+GSD 官方仓库的根目录和 package.json 的 files 字段中均不存在独立的 skills/ 目录——Skills 是在安装时由 install.js 从 commands/gsd/*.md 动态转换生成的产物 58。这一设计源于 Claude Code 在 2025 年对 commands/ 目录的弃用（deprecated）和向 skills/ 目录的迁移：新版 Claude Code Skills 支持目录化结构、可选 frontmatter 控制和自动加载能力 58。
+
+转换过程由 convertClaudeCommandToClaudeSkill 函数完成，核心操作包括四项：一是 frontmatter 重构，将命令格式的 YAML frontmatter 转换为技能格式的 frontmatter；二是添加 user-invocable 控制标志，决定该技能由用户主动调用还是由 AI 自动触发；三是路径替换，将 ~/.claude/ 和 $HOME/.claude/ 引用替换为目标运行时的等效路径（如 Qwen Code 的 ~/.qwen/）；四是工具名称映射，为异构运行时（如 Copilot）转换工具名称——Claude 的 Bash 映射为 Copilot 的 execute，Read 映射为 read，Write 映射为 edit 9。
+
+这种”源码一次编写，安装时多态转换”的策略，使 GSD 能够以 57 余个 commands/gsd/*.md 源文件支撑 15 个平台的差异化部署。但代价也很明显：任何平台行为变更都需要修改安装器逻辑，而无法通过独立更新 skills 包来响应。
+
+3.1.3 多平台安装路径与调用约定差异
+上表揭示了 GSD 多平台支持的一个关键工程现实：虽然安装命令统一为 npx get-shit-done-cc@latest，但底层的路径约定、调用前缀和文件格式存在实质性差异。三种命令前缀体系并存——OpenCode、Kilo、Augment 等使用 /gsd-（kebab-case）；Claude Code、Gemini、Copilot 等使用 /gsd:（colon-prefixed）；Codex 则完全独立地使用 $gsd-（美元符号前缀）58。Cline 甚至没有命令前缀概念，GSD 的工作流指令通过 .clinerules 文件注入系统提示词，由 Cline 自动加载 28。
+
+运行时感知配置（Runtime-Aware Configuration）是 v1.36.0 引入的重要适配机制。安装器为非 Claude 运行时自动配置 resolve_model_ids: "omit"，跳过 Anthropic 模型 ID 解析，让运行时选择自己的默认模型 28。对于 Codex，安装器会将 Opus/Sonnet/Haiku 层级解析为 Codex 原生模型（gpt-5.4 xhigh / gpt-5.3-codex medium / gpt-5.4-mini medium），并在每个 agent 的 TOML 中自动嵌入 model 和 model_reasoning_effort 28。这种运行时感知映射存储在 get-shit-done/bin/lib/core.cjs 的 RUNTIME_PROFILE_MAP 中，v1.36.0 覆盖了 gemini、qwen、opencode 和 copilot，而 kilo、cline、cursor 等 Group B 运行时则使用未知运行时回退机制 。
+
+3.2 Agents 与 Skills 系统
+3.2.1 Agent 定义结构与分类体系
+GSD 的 agents/ 目录包含 33 个专门 Agent 定义文件（21 个 primary + 12 个 advanced），每个是一个 Markdown 文件，包含 YAML frontmatter 和 XML 结构化的角色定义体 10 。这种”Markdown 即代码”（Markdown-as-Code）的方法将传统上存储在数据库或配置系统中的 Agent 定义，转化为可直接版本控制、diff 审查和协作编辑的文本文件。
+
+每个 Agent 定义采用统一的五段式 XML 分区结构：<role> 定义 Agent 的身份和行为边界；<philosophy> 确立方法论原则；<tool_strategy> 规定工具使用策略；<output_formats> 提供精确的输出模板；<execution_flow> 描述逐步执行流程；<success_criteria> 列出完成检查清单。XML 标签被选作结构边界而非 Markdown 标题，其工程依据是 Claude 模型在训练中被专门优化为识别 XML 标签作为结构分隔符，这比对 Markdown 标题的解析更为可靠 7。
+
+33 个 Agent 按职责可分为 6 个功能家族：规划类（gsd-planner、gsd-roadmapper、gsd-plan-checker）、研究类（4 个并行 researcher + synthesizer）、执行类（gsd-executor）、验证类（gsd-verifier 及其变体）、调试类（gsd-debugger 体系）、以及分析/审计类（gsd-codebase-mapper、gsd-security-auditor 等）。其中 9 个审计类 Agent 在 v1.38.x 中进行了”谄媚硬化”（sycophancy hardening），通过修改提示词防止 Agent 过度迎合用户假设 10。
+
+类别
+数量
+代表 Agent
+Size Budget
+核心职责
+规划类
+3
+gsd-planner, gsd-roadmapper, gsd-plan-checker
+XL/Large
+创建/验证执行计划 10
+研究类
+6
+gsd-phase-researcher, gsd-project-researcher, gsd-research-synthesizer
+Default/Large
+领域/技术/UI 研究 7
+执行类
+1
+gsd-executor
+Large
+执行任务、原子提交 23
+验证类
+5
+gsd-verifier, gsd-integration-checker, gsd-nyquist-auditor
+Large
+质量/目标反向验证 26
+调试类
+3
+gsd-debugger, gsd-debug-session-manager, gsd-code-fixer
+XL
+系统调试与科学方法诊断
+分析/审计类
+10
+gsd-codebase-mapper, gsd-security-auditor, gsd-ai-researcher
+Default
+代码库分析、安全审计、AI 框架选择 10
+文档类
+5
+gsd-doc-writer, gsd-doc-verifier, gsd-doc-classifier
+Default
+文档生成/验证/分类 23
+模型配置（Model Profiles）系统进一步细化了 Agent 的执行策略。GSD 定义了四种模型配置层级——quality（最高质量）、balanced（平衡）、budget（低成本）和 inherit（继承）——为不同 Agent 分配不同模型 64。例如 gsd-planner 在 quality 配置下使用 Claude Opus，在 budget 配置下降级为 Sonnet。这一配置体系使同一套 Agent 定义能够根据项目预算和质量需求弹性调整推理成本。
+
+3.2.2 Agent Size-Budget：CI 强制的分层行数限制
+v1.37.0（2026-04-17）引入了 Agent Size-Budget 执行机制，为所有 Agent 定义了分层的行数限制 60。这一机制的直接驱动力来自量化的成本分析：每次 dispatch gsd-debugger 时，Claude 加载约 50 KB（约 12,500 tokens）的提示上下文，其中重复的 “Mandatory Initial Read” 和 “Project skills discovery” 文本在每次子代理调用中都被计费 66。官方 Claude Code Skill 指南推荐 SKILL.md 低于 500 行，但 GSD 自己的 Agent 此前超出此限制 3 倍之多 66。
+
+三层 Size Budget 体系如下：XL 层级（≤1,600 行）适用于 gsd-debugger 和 gsd-planner，这两个 Agent 需要承载复杂的方法论指导和多路径决策逻辑；Large 层级（≤1,000 行）适用于 gsd-phase-researcher、gsd-verifier、gsd-doc-writer、gsd-plan-checker 和 gsd-executor，这些 Agent 需要平衡专业深度与上下文效率；Default 层级（≤500 行）适用于所有其他 gsd-* Agent 66。
+
+该预算通过 tests/agent-size-budget.test.cjs 在 CI 中强制执行，任何超出预算的回归都会触发 CI 失败 66。实际迁移中，5 个最大的 Agent（gsd-planner、gsd-executor、gsd-debugger、gsd-verifier、gsd-phase-researcher）通过将内联块替换为 @-file 引用，一次性删除了约 40 行重复内容 66。据估算，这一优化每次 Agent dispatch 可节省约 250-350 个 token 66。以一个包含 4 个 researcher、1 个 planner、1 个 checker 和 3 个 executor 的典型阶段为例，单阶段即可节省 2,250-3,150 个 token，在多次迭代中累积效应显著。
+
+3.2.3 Shared Boilerplate 提取与 Progressive-Disclosure 模式
+v1.37.0 的 Size-Budget 迁移同时引入了两项共享参考文件：get-shit-done/references/mandatory-initial-read.md 和 get-shit-done/references/project-skills-discovery.md 66。这两个文件包含了此前在每个大型 Agent 定义中重复出现的公共 boilerplate 文本。迁移后，Agent 定义中以内联形式存在的通用指导被替换为 @-file 引用，Agent 在需要时动态加载支持材料，而非在每次 dispatch 时被动接受全部内容。
+
+这一设计遵循 Claude Code Skill 指南推荐的 progressive-disclosure（渐进披露）模式：Agent 定义保持精简（<500 行），详细说明放在引用文件中，Agent 仅在需要时加载 66。tests/agent-required-reading-consistency.test.cjs 确保跨 Agent 引用的一致性——即使 boilerplate 被提取到共享文件中，所有 Agent 仍然读取语义等价的内容 66。这种从”内联包含”到”按需引用”的转变，本质上是将 Agent 定义从”自包含文档”重构为”入口点 + 引用图谱”，与软件工程中从单体应用到微服务的解耦逻辑同构。
+
+3.3 Hooks 与事件系统
+3.3.1 build:hooks 构建流程与语法验证
+GSD 的 Hooks 系统通过 npm run build:hooks 构建，该命令调用 scripts/build-hooks.js，将 hooks/ 源文件拷贝到 hooks/dist/ 并进行 JavaScript 语法验证 。构建脚本定义了 HOOKS_TO_COPY 白名单，包含 11 个 hook 文件：8 个核心 .js 文件和 3 个社区 .sh 文件。对每个 .js 文件，脚本使用 Node.js 的 vm.Script 进行纯语法验证（不执行代码），验证通过后复制到 hooks/dist/；.sh 文件则直接复制，无语法验证 67。
+
+这一构建流程是发布流程的必要环节——package.json 的 prepublishOnly 脚本自动执行 hooks + sdk 构建，但源码克隆安装时必须手动运行 npm run build:hooks 67。Issue #2406 揭示了白名单机制的一个严重缺陷：build-hooks.js 曾遗漏 gsd-read-injection-scanner.js，导致该安全 hook 从未被分发给 v1.37.0/v1.37.1 的用户，形成了一个 100% 可复现的”静默失效”（silent failure）安全漏洞 。该 bug 在后续 commit (9e87d43) 中修复，但暴露了白名单维护模式在规模扩展时的系统性风险。
+
+3.3.2 事件触发点与生命周期钩子
+安装器将 hooks/dist/ 中的编译后文件复制到目标运行时的 hooks/ 目录，并在 settings.json 中注册 PostToolUse hook。以 Claude Code 为例，注册配置如下：postToolUse 数组中的每个条目包含 command（执行命令的绝对路径）和 pattern（触发模式，"*" 表示匹配所有工具调用）。安装器的 buildHookCommand 函数为不同运行时生成 hook 注册命令，支持 .js 和 .sh 两种类型，使用绝对引用路径以避免工作目录变化导致的解析失败 60。
+
+11 个 hook 文件按类型和职责可分为两类：核心 .js hooks（8 个）全部注册为 PostToolUse 触发，在每次工具调用后执行；社区 .sh hooks（3 个）为 bash 脚本，需要通过 .planning/config.json 中的 hooks.community 设置显式启用 67。核心 hooks 的职责覆盖了 GSD 运行时的关键监控维度：gsd-statusline.js 提供状态栏显示，支持 last: /cmd 后缀（opt-in）；gsd-context-monitor.js 识别上下文窗口耗尽并提供恢复建议；gsd-prompt-guard.js 在 write 操作时扫描提示注入；gsd-read-guard.js 通过 stdin session_id 检测读保护；gsd-read-injection-scanner.js 执行读取时的提示注入扫描；gsd-workflow-guard.js 替换旧版 /gsd: 命令格式；gsd-check-update.js 和 gsd-check-update-worker.js 组成异步更新检查体系 67。
+
+3.3.3 PostToolUse 安全注入检测
+gsd-read-injection-scanner.js 是 GSD 主动安全防护体系的关键组件，其职责是在 Agent 读取文件时扫描潜在的提示注入攻击——即恶意构造的文件内容试图覆盖或篡改 Agent 的指令。该 hook 在 PostToolUse 生命周期触发，对每个 Read 工具的输出进行模式匹配和异常检测。由于 Issue #2406 导致该 hook 在 v1.37.0/v1.37.1 版本中从未被实际分发 68，GSD 在此期间的安全防护实际上存在约两周的窗口期缺失，这成为评估项目发布流程成熟度的一个具体指标。
+
+3.4 状态持久化架构
+3.4.1 .planning/ 目录作为”文档数据库”
+GSD 的状态层 .planning/ 采用纯文件系统持久化策略，所有项目上下文、进度和决策以 Markdown/JSON 文件形式存储，实现零数据库的跨会话状态恢复 18 7。这种设计的根本动机来自 GSD 对 AI 上下文管理的核心洞察：LLM 的上下文窗口是计算缓存而非持久存储，所有需要跨会话保留的状态必须外置到可靠的外部系统中。
+
+.planning/ 目录的完整结构包含 9 个主要子树：PROJECT.md 承载项目愿景和需求；REQUIREMENTS.md 记录可检查的需求与可追溯性；ROADMAP.md 描述阶段分解和执行计划；STATE.md 作为跨会话的活跃记忆；config.json 存储项目级配置；research/ 存放 5 份研究发现（STACK.md、FEATURES.md、ARCHITECTURE.md、PITFALLS.md、SUMMARY.md）；codebase/ 保存现有代码库分析（brownfield 场景）；phases/ 按阶段组织 PLAN.md 和 SUMMARY.md；quick/、todos/ 和 milestones/ 分别管理快速任务、待办事项和归档里程碑 18。
+
+每个工作流启动时按固定顺序读取上下文文件：每个工作流开始时读取 STATE.md → PROJECT.md → ROADMAP.md；规划阶段补充 REQUIREMENTS.md + Research files + 历史 SUMMARY.md；执行阶段加载 PLAN.md + CONTEXT.md + RESEARCH.md 18。这种”文件级上下文工程”（file-level context engineering）替代了”对话级上下文积累”（conversation-level context accumulation），从根本上消除了 context rot 问题——每个任务在全新的 200K token 上下文中执行，不携带之前任务的累积噪声 16 17。
+
+3.4.2 文件大小限制与质量退化阈值
+GSD 对 .planning/ 中的文件强制执行大小限制，以防止 Claude 的上下文质量随内容增加而下降 18。限制基于经验观察：当上下文填充至 0-30% 时推理质量最高；50% 时模型开始”偷工减料”（cutting corners）；70% 以上时出现幻觉概率显著上升 。
+
+文件
+最大行数限制
+功能定位
+读取时机
+PROJECT.md
+~500 行
+项目愿景和需求
+每个工作流首先读取 18
+STATE.md
+~100 行
+跨会话活跃记忆
+每个工作流首先读取 18
+ROADMAP.md
+~500 行
+阶段分解与执行计划
+每个工作流首先读取 18
+PLAN.md
+~200 行
+单个计划的可执行任务
+执行阶段加载 18
+SUMMARY.md
+灵活
+阶段执行总结
+下一阶段研究时读取 18
+RESEARCH.md
+灵活
+并行 researcher 综合输出
+规划阶段加载 7
+整个 .planning/ 目录的总行数约 5,300 行 ，远低于 Claude 的 200K token 上下文窗口（按平均每行 4 tokens 估算，约 21,200 tokens，占窗口容量的 10.6%）。这意味着即使在最坏情况下一次性加载全部规划文件，主上下文仍有近 90% 的余量用于代码库分析和推理。这一”永远保持主上下文在 30-40%“的设计目标，通过状态外置和 Agent 隔离两个互补机制实现 。
+
+3.4.3 SDK 演进：从 gsd-tools.cjs 到 @gsd-build/sdk
+GSD 的确定性工具层经历了两代架构演进。第一代是 get-shit-done/bin/gsd-tools.cjs——一个 CommonJS 模块，包含 20 个 domain modules，负责状态解析、路线图更新、计划索引、Git 提交、frontmatter 处理和 UAT 渲染。关键设计原则是 LLM 从不构造 git 命令、从不解析 markdown、从不格式化 frontmatter——所有这些机械操作由确定性 TypeScript/JavaScript 代码执行 9。
+
+第二代是 v1.30.0（2026-03-18）引入的 @gsd-build/sdk——一个 headless TypeScript SDK，提供可编程 API 和 CLI 接口 gsd-sdk 12。SDK 的 sdk/src/ 目录包含约 30+ TypeScript 源文件，核心模块包括 cli.ts（命令解析和路由）、config.ts（配置加载）、context-engine.ts（上下文引擎）、context-truncation.ts（自动截断以适配子 200K 模型）、event-stream.ts（事件流遥测）和 gsd-tools.ts（shell out 到 legacy gsd-tools.cjs 的兼容层）。
+
+v1.36.0 的 SDK Phase 1（Issue #2083）建立了基于注册表的类型化查询系统 gsd-sdk query，采用最长前缀匹配策略（resolveQueryArgv）——gsd-sdk query state json 会匹配 state.json handler 而非 state handler 。关键设计决策包括快速失败（未注册命令立即报错，不降级到 gsd-tools.cjs）和分类错误约定（GSDError vs { data: { error } }）。为确保向后兼容，SDK 维护 “Golden Parity” 测试体系（sdk/src/golden/），确保 gsd-sdk query 的输出与 legacy gsd-tools.cjs 的输出逐字节一致 60。
+
+迁移示例清晰地展示了这一演进：node gsd-tools.cjs init phase-op 12 被 gsd-sdk query init phase-op 12 替代；node gsd-tools.cjs state json 被 gsd-sdk query state json 替代 75。docs/CLI-TOOLS.md 维护完整的 CJS → SDK 命令映射表，作为迁移期间的权威参考。根 package.json 的 build:sdk 脚本执行 cd sdk && npm ci && npm run build，将 TypeScript 编译输出到 sdk/dist/；prepublishOnly 则自动执行 hooks + sdk 构建，确保发布产物始终与源码同步 40。
+
+
+
+GSD v1 五层技术架构
+上图展示了 GSD v1 的完整五层技术架构。数据流自上而下：用户在命令层输入 /gsd-* 命令，触发工作流编排层加载上下文并生成 Agent；Agent 在隔离的 200K token 上下文中执行专业任务，期间通过确定性工具层访问状态文件和 Git 仓库；所有状态变化最终持久化到 .planning/ 目录的文件系统中。这一架构的核心原则是 LLM/确定性分离——创造性工作（代码生成、架构决策）交给 LLM，机械工作（Git 操作、状态解析、模板填充）交给 TypeScript 工具。五个层次之间的契约通过 Markdown/XML 文件格式和 gsd-sdk query 命令接口定义，使得整个系统在不依赖外部数据库或消息队列的情况下，实现了跨会话的状态恢复和 Agent 间通信。
+
+ 
+4. 核心特点与亮点
+GSD 框架区别于其他 AI 编程辅助工具的根本标志，在于它将”上下文工程”（Context Engineering）、“多代理编排”（Multi-Agent Orchestration）和”规格驱动开发”（Spec-Driven Development）三者融合为一个自洽的工作系统。这三个支柱并非独立的功能叠加，而是围绕一个核心问题——AI 模型在长上下文中的推理质量衰减——所设计的系统性解决方案。本章从上下文管理、代理分工、质量门控和快速实验四个维度，剖析 GSD 最具差异化的工程创新。
+
+4.1 上下文工程：解决 Context Rot
+4.1.1 Context Rot 的量化证据：模型固有的质量衰减
+“Context Rot”（上下文腐化）是指大语言模型（LLM）随着上下文窗口中 token 数量增加，其准确回忆和利用已输入信息的能力发生系统性下降的现象。Anthropic 官方工程博客明确承认，这是所有模型的固有属性——“即使某些模型的退化曲线更平缓，这种特征在所有模型中都会出现” 。同一结论也出现在 Anthropic API 文档中：“更多上下文并不自动更好。随着 token 数量增长，准确率和召回率会退化” 。
+
+MRCR v2（Multi-Needle Context Retrieval, 8-needle 变体）基准测试提供了量化的退化曲线。Anthropic 官方数据显示，Claude Opus 4.6 在 256K 上下文时达到 93%，但在 1M 上下文时下降至 76%——15-17 个百分点的断崖式下跌 14。独立评测进一步指出，在 1M token 时”即使最优秀的 Opus 4.6，1/4 的多针检索也会失败”；真实世界的 agentic 编程场景中退化更为严重 。
+
+Sonnet 退化更快。独立实验显示 Sonnet 4.6 在 200K 时 75% 深度位置开始模糊，400K 时部分遗漏，600K 时完全失效 。这些数据与社区质量阈值模型相互印证：0-30% 上下文占用 = 最高质量；50% = 模型开始”偷工减料”；70% 以上 = 出现幻觉 1。
+
+从根因层面看，Context Rot 并非可修复的软件缺陷，而是 Transformer 架构注意力机制的结构性限制。Liu 等人（2024）记录了U 形性能曲线：模型对上下文开头和结尾的信息关注良好，但中间信息会丢失；当相关信息从边缘移到中心时，性能下降超过 30% 。12-factor agents 框架将上下文填充超过 40% 的区域称为”dumb zone”，信噪比退化、注意力碎片化、代理开始犯错 13。
+
+
+
+Context Rot 质量衰减曲线
+上图综合了 Anthropic 官方 MRCR v2 基准 14与 Sonnet 4.6 独立 needle-in-haystack 测试 79的数据，展示了不同质量区域的分界线。GSD 的三层防御架构正是围绕这些量化阈值设计的。
+
+4.1.2 三层防御架构：结构化工件 + Fresh Subagent + 主会话控制
+GSD 官方文档将其上下文管理策略归纳为三个互补机制 ：
+
+第一层：结构化工件系统。GSD 维护 9 类上下文文件，每个文件都有明确的作用和大小限制，基于 Claude 质量退化的阈值校准 70。PROJECT.md（~500 行）承载项目愿景，始终加载；REQUIREMENTS.md（~1000 行）记录 v1/v2 需求；ROADMAP.md（~800 行）记录方向和完成状态；STATE.md（~300 行）追踪决策与阻塞，作为跨会话”living memory” 21；PLAN.md（~200 行）包含 XML 结构化的原子任务 69；SUMMARY.md（~300 行）记录变更历史并提交到 Git ；CONTEXT.md（~400 行）保存实现偏好；research/ 目录（~2,000 行）容纳领域知识 。所有工件总计约 5,300 行 71，按平均每行 4 tokens 估算约 21,200 tokens，仅占 200K 窗口容量的 10.6%。
+
+第二层：Fresh 200K Subagent。每个 plan 最多包含 3 个任务，每个 plan 在一个 fresh subagent 中运行——200K token 纯粹用于实现，零累积垃圾。Task 1、Task 2、Task 50 都以完全相同的质量执行 。Claude Code 的 Task 工具创建子代理时，每个子代理获得完全独立的 200K token 上下文窗口，不继承 orchestrator 的对话历史，只接收 orchestrator 显式传递的内容 。多个 subagents 可以并行运行——Claude Code 支持最多约 10 个 subagents 同时运行，实现真正的 wall-clock 并行 。
+
+第三层：主会话控制。GSD orchestrator 保持 10-15% 的上下文使用率，实际工作在 subagents 的 fresh 200K 上下文中完成 。Issue #50 的最佳实践将主会话目标设为 ~5% 用于纯编排，并明确规则”绝不使用 TaskOutput 读取完整 subagent 输出”——避免结果溢出父会话 15。TÂCHES 的直播演示确认，完成 3 个 phase 后主上下文仅消耗 24% 。
+
+这一三层架构的深层洞察在于：LLM 的上下文窗口应被视为计算缓存，不是存储。持久化状态外置到文件系统，LLM 仅在 fresh 上下文中执行原子任务。threads/ 和 seeds/ 进一步扩展了这一范式——threads/ 支持跨会话持久化上下文线程，seeds/ 存储前瞻性想法并在合适里程碑自动浮现 55 。
+
+4.1.3 自适应 Prompt 瘦化：双向上下文窗口适配
+GSD v1.36.0（2026-04-08）引入了基于 CONTEXT_WINDOW 配置的三层 prompt 系统，根据子代理可用的上下文窗口大小进行双向自适应 62。
+
+对于 sub-200K 模型，系统执行显式瘦化：executor agent 省略扩展的偏差规则示例和检查点示例（移至 references/executor-examples.md）；planner agent 省略扩展的反模式列表（移至 references/planner-antipatterns.md）。核心规则保留 inline，仅冗余示例被提取，静态开销减少约 40% 。GSD 明确拒绝有损且非确定性的上下文压缩——“显式瘦化是可预测和可测量的” 。
+
+对于 ≥500K 模型，GSD 执行反向丰富化——executor agents 接收前一波 SUMMARY.md 和 phase CONTEXT.md/RESEARCH.md；verifier agents 接收所有 PLAN.md、SUMMARY.md、CONTEXT.md 加上 REQUIREMENTS.md，实现跨阶段感知 47。这种双向自适应——小窗口瘦化、大窗口丰富化——反映 GSD 对上下文管理的精细化态度：不盲目追求窗口最大化，而根据实际可用容量优化信息密度。
+
+4.2 多代理编排：Agentic Engine
+4.2.1 Thin Orchestrator 模式：从不做重活
+GSD 的多代理架构遵循一个一致的模式：薄编排器生成专业代理 。编排器从不做重活，只执行四个动作：spawn agents、wait、integrate、route 72。核心优势体现在上下文效率——运行一整个阶段后”主上下文窗口保持在 30-40%” 72。GSD 不使用单一的超级编排器（mega-orchestrator），而是为每个工作阶段分配独立的编排器，每个保持在其上下文容量的 50% 以下。阶段完成时，编排器将状态写入磁盘，新的编排器从上一个停止的地方接手 。编排器负责加载 STATE.md、决定生成哪些代理、验证输出质量、更新 STATE.md 并路由；代理负责执行专业技能、读取上下文、产生结构化输出 72。
+
+4.2.2 四阶段分工：从研究到验证的完整链条
+GSD 的每个阶段都遵循相同的薄编排器 + 专业代理模式。四个核心阶段的分工如下 45 72：
+
+Research 阶段：编排器协调 4 个并行 researcher 子代理，分别调查 Stack、Features、Architecture 和 Pitfalls 四个维度 32。每个 researcher 在独立子代理中并行运行，拥有全新的 200K 上下文窗口 7。
+
+Planning 阶段：编排器管理 Planner 与 Checker 的迭代循环。Planner 创建计划后，Checker 执行 8 维度验证——覆盖度、完整性、原子性、清晰度、依赖逻辑、决策保真度、可追溯性和 Nyquist Validation 45。失败时反馈返回 Planner 修改，最多 3 次 32。
+
+Execution 阶段：编排器按 depends_on 和 files_modified 构建依赖图，分组为 waves。同一 wave 内并行运行，后续 wave 等待依赖项完成 38。每个 executor 获得全新 200K 上下文，仅加载必要文件 。
+
+Verification 阶段：Verifier 检查代码库是否达到阶段目标（而非仅完成任务），通过目标反向分析从”应该交付的结果”出发反向验证 26。多个 UAT 问题可并行生成多个 debuggers 诊断 72。
+
+这一四阶段链条遵循”目标反向规划”（Goal-Backward Planning）——不问”应该构建什么”，而问”目标实现需要什么条件为真”。原子 Git 提交格式 {type}({phase}-{plan}): {desc} 使每个任务独立可 bisect、可 revert 1。
+
+4.2.3 并行 Researcher 机制：文件系统通信的并行调查
+GSD 的研究阶段启动 4 个并行 researcher，每个在独立子代理中运行，拥有全新 200K 上下文窗口 7，使研究时间从串行 4x 缩短到并行 1x。分工为 32 ：Stack Researcher 调查技术、库、API，输出到 STACK.md；Features Researcher 探索类似功能实现，输出到 FEATURES.md；Architecture Researcher 研究架构模式，输出到 ARCHITECTURE.md；Pitfalls Researcher 识别常见错误，输出到 PITFALLS.md。
+
+研究编排遵循三波结构：Wave 1 四个 Researcher 并行写入 .planning/research/；Wave 2 Synthesizer 读取四份结果提炼为 SUMMARY.md；Wave 3 Roadmapper 创建路线图 7。核心原则是”并行化独立工作，序列化依赖工作”，代理间通信完全通过文件进行 7。这种基于文件系统的通信机制不依赖内存共享或消息队列，使状态在上下文重置后仍然持久，并允许人类审查每个中间阶段。
+
+4.3 规格驱动与质量门控
+4.3.1 四层质量门：从 Pre-flight 到 Abort 的纵深防御
+GSD 的验证与质量门控系统采用”纵深防御”（defense in depth）策略。v1.34.0 将四种标准门控类型正式标准化，写入 get-shit-done/references/gates.md，并接入 plan-checker 和 verifier agent，实现无需人工逐步审核的质量强制 50。
+
+门控类型
+目的
+行为特征
+恢复策略
+典型应用位置
+Pre-flight
+验证操作前置条件
+条件不满足时阻止进入，不创建部分工作
+修复缺失条件后重试
+plan-phase 入口检查 REQUIREMENTS.md 50
+Revision
+评估输出质量，质量不足时返回修订
+将反馈返回生产者，受迭代上限约束；若问题数在连续迭代中未减少则提前升级（stall detection）
+生产者处理反馈，检查者重新评估
+plan-checker 审核 PLAN.md（最多 3 次迭代）50
+Escalation
+将无法解决的问题上报开发者
+暂停工作流，呈现选项，等待人工输入
+开发者选择行动，工作流沿选定路径恢复
+修订循环耗尽后未解决的冲突；合并冲突 50
+Abort
+终止操作以防止损害或浪费
+立即停止，保留状态，报告原因
+开发者调查根因，修复后从检查点重启
+执行期间上下文窗口临界不足；STATE.md 错误状态阻塞 /gsd:next 50
+这一四层门控体系区分”可自动恢复”和”必须人工决策”两类问题。Pre-flight 和 Revision 由系统自动处理——前置条件不满足就阻塞，计划质量不达标就返回修改。Escalation 在自动化耗尽时（3 次修订循环后仍失败）将控制权交还人类。Abort 在检测到不可恢复状态（上下文窗口即将耗尽）时主动停止以防止数据损坏。gates.md 中的门控矩阵明确每个工作流阶段使用哪种门控、检查哪些工件以及失败行为，形成从规划前到执行后的完整防御链 50。
+
+4.3.2 Schema Drift Detection：强制注入 Schema Push 任务
+Schema Drift Detection 是 GSD 针对 ORM 场景设计的专项质量门，源自真实生产事故：agent 修改了数据库模型但未执行 schema push，验证通过（TypeScript 类型来自配置而非实时数据库）但生产崩溃 。
+
+在 plan-phase 第 5.7 步，系统检测 schema 相关文件并注入强制的 [BLOCKING] schema push 任务，防止构建通过但数据库未更新的假阳性验证 44。检测覆盖 Payload CMS、Prisma、Drizzle、Supabase 和 TypeORM 五种 ORM 44。Issue #1381 的用户报告证实了该门控的实际价值 97，第三方博客也确认”ORM changes missing migrations → Flagged before commit” 。
+
+4.3.3 Security Enforcement：威胁模型锚定验证
+GSD 的安全验证从两个层面运作。第一层是运行时安全层，自 v1.27 起引入，包括路径遍历防护、提示注入检测、PreToolUse 守卫钩子、安全 JSON 解析、Shell 参数验证和 CI 就绪的注入扫描器 1。第二层是阶段级安全审计，通过 /gsd-secure-phase 启动 gsd-security-auditor agent，对已完成阶段进行威胁缓解措施的追溯验证 53。
+
+/gsd-secure-phase 的核心是”威胁模型锚定”——验证 PLAN.md 中 threat model 部分定义的具体威胁是否已被缓解，而非执行通用扫描。支持三种模式：已有 SECURITY.md 时审计验证；无 SECURITY.md 但从 PLAN.md 提取威胁模型生成；阶段未执行时退出 53。security_enforcement 默认 true 54，执行阶段完成后若存在未关闭威胁则阻止推进 42。v1.37.0 新增的 gsd-read-injection-scanner hook 进一步加固了读取时的防护 1。
+
+4.4 快速实验模式
+4.4.1 Quick Mode（/gsd-quick）：ad-hoc 任务的快速路径
+Quick Mode 为 ad-hoc 任务提供快速路径，保留原子提交和状态跟踪，跳过可选步骤 76。默认不启用 Research、Discussion、Plan checker 和 Verifier，但保留 Planning + Execution 核心功能 14。产出存储在 .planning/quick/，使用独立序列编号，不干扰主工作流 77。四个可组合 flag 调整严谨度：--discuss 轻量级讨论；--research 启动 focused researcher；--validate 启用计划检查 + 执行后验证；--full 启用完整流程 76 78。v1.37.0 修正了 --full 的语义：--validate 替代旧 --full 行为，--full 现在表示真正的完整流程 88。
+
+4.4.2 Spike 模式（/gsd-spike）：技术可行性的聚焦实验
+/gsd-spike 在规划前验证技术可行性，运行 2-5 个聚焦实验，使用 Given/When/Then 框架，产出 VALIDATED / INVALIDATED / PARTIAL 裁决 80。v1.37.0（2026-04-17）引入，不需要 /gsd-new-project，自动按需创建 .planning/ 子目录 13。每个实验包含三个要素：写代码前的 Given/When/Then 假设；可工作代码（非伪代码）；带证据的裁决 79。结果存储在 .planning/spikes/，完成后 /gsd-spike-wrap-up 打包到 .claude/skills/，未来 session 自动加载 13。
+
+4.4.3 Sketch 模式（/gsd-sketch）：交互式 HTML Mockup 变体
+/gsd-sketch 在实现前探索视觉方向，为每个设计问题生成 2-3 个交互式 HTML mockup 变体，单个 index.html 输出，浏览器直接打开——无需构建步骤 79。支持交互式 mood intake、直接传入设计问题、--quick 跳过 intake、--text 为非 Claude runtime 提供文本模式 79。输出使用 tab 导航切换变体，共享 themes/default.css，交互元素均为功能性 79。产出存储在 .planning/sketches/，索引于 MANIFEST.md 81。
+
+维度
+Quick Mode
+Spike Mode
+Sketch Mode
+触发命令
+/gsd-quick
+/gsd-spike
+/gsd-sketch
+引入版本
+早期版本
+v1.37.0 (2026-04-17)
+v1.37.0 (2026-04-17)
+核心目的
+ad-hoc 任务的快速路径 76
+验证技术可行性 80
+探索视觉方向 79
+输入形式
+任务描述 + 可选 flags
+技术问题（交互式/直接传入/–quick）
+设计问题（mood intake/直接传入/–quick/–text）
+输出形式
+.planning/quick/ 下的原子计划与执行
+2–5 个实验 + VALIDATED/INVALIDATED/PARTIAL 裁决
+2–3 个交互式 HTML mockup 变体（单个 index.html）
+方法论特征
+Planner + Executor，跳过可选步骤 14
+Given/When/Then 框架，写代码前编写假设 79
+无构建步骤，浏览器直接打开 79
+存储路径
+.planning/quick/NNN-slug/ 77
+.planning/spikes/NNN-name/README.md 13
+.planning/sketches/NNN-name/index.html 81
+与主流程关系
+物理隔离（独立目录），更新 STATE.md 而非 ROADMAP.md
+物理隔离，wrap-up 后打包为 .claude/skills/ 13
+物理隔离，wrap-up 后打包为 .claude/skills/ 13
+典型用例
+“你知道要做什么，任务简单直接” 14
+不确定技术方案是否可行，想比较两个实现 79
+比较布局结构、交互模型或视觉处理 79
+上表展示了三种快速实验模式在目标、方法论和产出上的差异。Quick Mode 面向”已知问题、快速执行”，通过可组合 flag 实现”渐进式严谨度” 77。Spike Mode 面向”未知可行性、先验证后决策”，将 Given/When/Then 测试框架前置到编码之前。Sketch Mode 面向”视觉方向不确定”，通过单个 HTML 文件消除构建摩擦。
+
+三个模式的共同设计哲学是物理隔离——产出存储在 .planning/ 下独立目录，与主 phase 工作流隔离。这是 GSD 处理”防蠢”与”防创造”之间张力的架构选择：严格的 spec-driven 流程保证生产质量，探索性实验保证创新空间，两者通过目录边界互不干扰 13。Spike 和 Sketch 的 wrap-up 机制将实验发现物转化为项目本地 skill，使探索成果能被主流程自动消费。
+
+ 
+5. 生态系统与版本演进
+GSD 项目自 2025 年 12 月发布以来，经历了从单一平台提示框架到跨平台规范驱动开发系统，再向独立 CLI 代理应用的两次范式跃迁。其生态系统演化速度极快：在不到 5 个月内，官方支持的 AI 编程运行时已从 1 个扩展至 15 个；社区产生了 6 个以上的移植分叉，部分功能被上游合并；而 gsd-2 仓库则标志着项目从”寄生”于 Claude Code 向基于 Pi SDK 的自主运行时转变。本章从多平台支持矩阵、社区移植生态和 v1 到 v2 的架构演进三个维度，系统梳理这一生态系统的结构特征与内在张力。
+
+5.1 多平台支持矩阵
+5.1.1 官方 15+ 运行时支持的扩展路径
+GSD v1 最初是 Claude Code 专用的自定义命令集合。截至 2026 年 4 月 v1.36.0，官方 README 明确声明支持 15 个 AI 编程运行时：Claude Code、OpenCode、Gemini CLI、Kilo、Codex、Copilot、Cursor、Windsurf、Antigravity、Augment、Trae、Qwen Code、Cline 与 CodeBuddy 55。平台扩展分五批完成：2025 年 12 月以 Claude Code 为起点；2026 年 1 月加入 OpenCode、Gemini CLI、Kilo 和 Codex；2 月扩展至 Copilot、Cursor 和 Windsurf；3 月覆盖 Antigravity、Augment 与 Trae；4 月 v1.35.0 新增 Qwen Code、CodeBuddy 和 Cline 60。
+
+
+
+GSD 官方运行时平台扩展时间线
+平台扩展的驱动力来自两个层面。第一，社区移植版本率先验证了跨平台可行性——gsd-opencode、gsd-gemini 和 get-shit-done-multi 等 fork 在官方支持之前就已实现适配，为上游合并提供了经过测试的代码路径。第二，安装器架构的可扩展性设计使新增运行时的边际成本较低：bin/install.js 通过统一的运行时参数系统和路径重写引擎，将同一组 Markdown 命令文件适配到各平台的配置目录 9。
+
+下表呈现 15 个运行时在安装路径、调用格式和发现机制上的核心差异。
+
+运行时
+全局安装路径
+本地安装路径
+调用前缀
+安装格式
+Claude Code
+~/.claude/skills/
+./.claude/skills/
+/gsd:
+Skills (2.1.88+)
+OpenCode
+~/.config/opencode/
+./.opencode/
+/gsd-
+Commands
+Gemini CLI
+~/.gemini/
+./.gemini/
+/gsd:
+Commands
+Kilo
+~/.config/kilo/
+./.kilo/
+/gsd-
+Commands
+Codex
+~/.codex/skills/
+./.codex/skills/
+$gsd-
+Skills
+Copilot
+~/.github/
+./.github/
+/gsd:
+Instructions
+Cursor
+~/.cursor/
+./.cursor/
+/gsd-
+Commands
+Windsurf
+~/.codeium/windsurf/
+./.windsurf/
+/gsd-
+Commands
+Antigravity
+~/.gemini/antigravity/
+./.agent/
+/gsd:
+Commands
+Augment
+~/.augment/
+./.augment/
+/gsd-
+Commands
+Trae
+~/.trae/
+./.trae/
+/gsd-
+Commands
+Qwen Code
+~/.qwen/skills/
+./.qwen/skills/
+/gsd:
+Skills
+CodeBuddy
+~/.codebuddy/skills/
+./.codebuddy/skills/
+/gsd-
+Skills
+Cline
+~/.cline/
+./.clinerules
+无前缀
+.clinerules
+表格数据综合自官方 README 55、docs/USER-GUIDE.md 28及安装器源码 9。该矩阵揭示了 GSD 多平台策略的核心特征：它并非通过抽象层统一各平台差异，而是通过安装器为每个平台生成定制化产物，将适配复杂度集中在构建阶段而非运行时。这种策略的好处是集成深度高——每个平台以原生格式接收 GSD；代价是维护负担随平台数量线性增长，且任何平台自身的格式变更（如 Claude Code 从 commands 迁移到 skills）都需要安装器同步更新。
+
+5.1.2 命令前缀的三体系差异
+GSD 命令在不同平台上的调用前缀遵循三种互不相容的体系，这由底层 AI 运行时命令解析机制决定 58。第一种以 /gsd-（kebab-case）为前缀，适用于 OpenCode、Kilo、Augment、Trae 和 CodeBuddy 等使用标准 slash command 的平台。第二种以 /gsd:（冒号分隔）为前缀，覆盖 Claude Code、Gemini CLI、Copilot、Antigravity 和 Qwen Code。第三种最为特殊：Codex CLI 使用 $gsd- 前缀，这是 Codex skills/prompts 系统的语法要求，与所有其他平台的 / 前缀形成本质性 UI 差异 58。
+
+Cline 是唯一完全不使用命令前缀的运行时。GSD 为 Cline 生成 .clinerules 规则文件，由 Cline 在启动时自动加载到系统提示词中，用户无需输入任何 /gsd-* 命令即可触发规范驱动开发工作流 28。这意味着 Cline 上的 GSD 体验更接近”始终在线的上下文注入”而非”按需调用的命令系统”，其交互模式与其他 14 个平台存在根本性差异。
+
+5.1.3 Codex Skills-First 方法
+Codex CLI 采用独特的双层架构：Skills（~/.codex/skills/gsd-*/SKILL.md）作为参考文档自动加载但不可被用户直接调用；Custom Prompts（/prompts:name）作为用户可调用的命令层 55。GSD 为 Codex 选择 skills-first 安装策略，原因在于 skills 可以在 Codex 的代理执行过程中被自动引用，更符合 GSD 以自动工作流为核心的设计理念。
+
+Codex skills 的变量语法也与其他平台不同：使用大写 $ARGNAME 格式（如 $AREA）而非小写 {{argname}}，参数传递使用 KEY=value 格式 58。此外，Codex 的 skills 仅支持全局安装，不支持项目级 skills，这限制了 Codex 上 GSD 的本地安装场景。
+
+5.2 社区移植与创新
+5.2.1 移植生态图谱
+GSD 社区在官方多平台支持成熟之前已产生多个平台移植版本。截至 2026 年 4 月，移植生态呈现三种命运轨迹。已归档：gsd-gemini 和 get-shit-done-multi 已归档，后者明确指出其 Copilot 支持已通过 PR #911 合并到上游，首创的 /gsd-autonomous 命令也已进入官方发布 55。意义递减：gsd-opencode 仍在维护，但其作者承认”it makes less and less sense”，因为官方 OpenCode 支持已相当成熟 55。活跃且独立：get-shit-done-antigravity 因 Antigravity 的多模型架构需求而保持独立维护，无法简单被上游合并 55。
+
+5.2.2 get-shit-done-antigravity 的独特贡献
+get-shit-done-antigravity 的 README 声明其”~40% 移植自 GSD，~60% 为原创功能” 55。这些原创功能直接回应多模型环境特有的工程挑战：Anti-Hallucination Engine（/gsd-no-halluc）在模型切换时通过结构化 Q&A 重新确认关键设计决策，防止代码风格与架构决策在多模型接力中漂移；Project Memory（/gsd-commit-memory）将关键决策和反复出现的问题写入持久化注册表，使后续模型能读取前序模型的”记忆”；Super Mode（/gsd-super）将标准工作流扩展为多模型并行协作模式，各模型在各自擅长的领域同时工作并通过文件系统同步状态。由于原始 GSD 最初仅面向 Claude Code 的单模型环境，这些功能填补了一个上游尚未面对的空白。随着 v2 支持 20+ LLM 提供商 ，多模型兼容性问题可能从社区 fork 的特殊需求转变为官方核心能力。
+
+5.2.3 碎片化创新模式
+GSD 社区生态呈现一种”碎片化创新”模式：社区分叉不仅复制上游，还针对特定平台进行超越性创新；成功功能经选择压力筛选后被上游合并，失败的则自然淘汰。动力来自三个结构性因素：平台差异——每个 AI 平台有不同的工具系统和 API 契约，迫使社区开发者创建平台专用适配层 9；需求差异——单模型工具不需要反幻觉引擎，多模型工具迫切需要；创新速度——社区 fork 不受上游发布周期约束，/gsd-autonomous 最早出现在 get-shit-done-multi 中，经社区验证后才合并到官方 55。然而碎片化也带来决策成本：用户在官方版本与社区 fork 之间选择时面临功能集差异和迁移困难。
+
+5.3 GSD v2：从提示框架到独立 CLI
+5.3.1 定位转变
+GSD v2（仓库 gsd-build/gsd-2，NPM 包 gsd-pi）与 v1 的核心差异可用官方 README 的一句话概括：“The original GSD went viral as a prompt framework for Claude Code. It worked, but it was fighting the tool — injecting prompts through slash commands, hoping the LLM would follow instructions, with no actual control over context windows, sessions, or execution.” 77这一转变的本质是控制权的转移。v1 将技能文件安装到各平台配置目录，依赖宿主平台加载并期望 LLM 遵循指令——这是一种”寄生”策略，无法控制上下文何时被填充、无法管理会话生命周期。v2 基于 Pi SDK 成为独立 TypeScript CLI，直接获得对 agent harness 的底层访问权限，可以”实际执行 v1 只能请求 LLM 做的事”——清除任务间上下文、在调度时精确注入文件、管理 Git 分支、跟踪成本和 token、检测卡死循环、从崩溃中自动恢复 76。中文技术社区将这一差异描述为：“如果说 v1 是’给 AI 一张任务清单’，那么 v2 就是’雇佣了一个全栈开发团队’” 1。
+
+5.3.2 Pi SDK 集成
+Pi SDK（由 Mario Zechner 开发）提供 interactive、print/JSON、RPC 和 SDK 四种运行模式 13。GSD-2 主要使用 SDK 模式嵌入，并通过 RPC 模式在 headless 编排中生成子进程。SDK 核心 API 包括 ModelRegistry、SessionManager、createAgentSession 等，支持模型选择、系统提示定制、工具注册和会话持久化 81。
+
+GSD-2 利用 Pi SDK 实现了六项底层控制能力。上下文管理：每个任务在全新 200k token 上下文中执行，调度提示词内联包含任务计划、切片计划和依赖摘要，LLM 无需浪费工具调用读取文件 88。Git 工作流：提供 none、branch 和 worktree 三种隔离模式，里程碑完成后自动 squash merge；并行编排模式下多个里程碑在独立 worktrees 中同时运行 85。成本追踪：实时记录每个阶段和切片的 token 消耗与预估费用，支持按阶段配置不同模型，接近预算阈值时自动降级 1。卡死检测：滑动窗口检测器识别重复调度模式（包括多单元循环），检测到后重试一次并附加深度诊断，再次失败则停止 88。崩溃恢复：lock file 跟踪当前单元，崩溃后下一次 /gsd auto 从 surviving session file 合成恢复简报并全上下文恢复 88。增量记忆：v2.26 引入的 KNOWLEDGE.md 作为 append-only 项目规则注册表，Agent 在每个单元开始时读取，发现反复出现的问题时追加，实现跨会话记忆 87。
+
+5.3.3 Headless 模式
+gsd headless 是 GSD-2 最具工程基础设施意义的功能。它在无 TUI 的情况下运行 /gsd 命令，通过生成 RPC 子进程、自动响应交互式提示、检测完成状态并返回标准化退出码，使 GSD 成为可嵌入 CI 管道、cron 作业和脚本化工作流的”可编程表面” 84。退出码语义为 0=完成、1=错误/超时、2=阻塞，ADR #2555 还提议增加 3=取消 15。--timeout N 设置整体超时（默认 300 秒），v2.26 引入的指数退避机制在崩溃后自动重启（5 秒 → 10 秒 → 30 秒上限，默认 3 次尝试），SIGINT/SIGTERM 绕过重启逻辑 87。gsd headless query 返回即时 JSON 快照（约 50 毫秒，无 LLM 参与），用于外部编排器的状态检查 99。多会话编排通过 .gsd/parallel/ 目录中的文件 IPC 实现，协调器可生成、监控和预算限制一组 GSD worker 16。
+
+5.3.4 v1 与 v2 架构对比
+下表基于官方 README 在 14 个维度上对比两个版本的根本差异 77。
+
+维度
+v1（Prompt Framework）
+v2（Agent Application）
+运行时
+Claude Code slash commands
+基于 Pi SDK 的独立 CLI
+上下文管理
+依赖 LLM 不填满窗口
+每个任务全新会话，程序化控制
+自动模式
+LLM 自循环（消耗上下文做编排）
+读取 .gsd/ 文件的状态机
+崩溃恢复
+无（会话死亡后从头开始）
+Lock file + 会话取证恢复
+Git 策略
+LLM 写 git 命令
+Worktree/branch/none 隔离 + squash merge
+成本追踪
+无
+每单元 token/成本台账 + 仪表板
+卡死检测
+无
+滑动窗口检测 + 诊断重试
+超时监督
+无
+软/空闲/硬超时 + 恢复转向
+上下文注入
+“Read this file”
+预内联到 dispatch prompt
+路线图重评估
+手动
+每个 slice 完成后自动
+技能发现
+无
+研究期间自动检测和安装
+验证
+手动
+自动化验证命令 + 自动修复重试
+报告
+无
+自包含 HTML 报告 + 指标和依赖图
+并行执行
+无
+多 worker 并行里程碑编排
+该对比揭示了 GSD 演进的深层范式转移：v1 是通过精心构造的提示词引导 LLM 行为的”提示工程框架”，其有效性依赖 LLM 的指令遵循能力；v2 是通过程序化 API 直接控制 agent 执行环境的”代理控制系统”，其有效性依赖工程化的状态管理和故障恢复机制。这一转变在 AI 编程工具生态中具有信号意义——GSD v1 的多平台寄生策略本质上是一种过渡方案，反映了早期平台缺乏底层 agent API 的现实；v2 的独立 CLI 模式则暗示 AI 编程工具正在从”增强现有编辑器”向”替代传统开发环境”演进，与 Cursor 从 VS Code 插件到独立 IDE 的方向一致 76。
+
+v2 也面临风险：NPM 包 gsd-pi 要求 Node.js ≥ 22.0.0，在 macOS、Linux 和 Windows 上分发 Rust N-API 原生引擎包 99。如果 Pi SDK 不能获得广泛采用，gsd-2 可能失去 v1 的跨平台生态系统优势。作为平衡策略，GSD 官方同时维护 v1（v1.38.3）和 v2（v2.75.0），并提供 /gsd migrate 双向迁移命令 19。这种双轨并行降低了迁移风险，但也意味着开发资源分散。从生态视角看，v1 的碎片化平台策略催生了社区 fork 的创新活力；v2 的独立 CLI 则可能将创新模式从”碎片化创新”转向”集中式扩展”——最终结果将取决于 gsd-pi 的扩展机制能否复现 v1 时代社区生态的创造力。
+
+ 
+6. 竞品对比与差异化
+6.1 直接竞品分析
+在 spec-driven development（规格驱动开发，SDD）工具谱系中，GSD 并非孤例。截至 2026 年 4 月，该领域已形成由 GitHub 官方项目、独立开发者作品和 YC 孵化项目共同构成的竞争格局。GSD 在 GitHub 上获得 57.1K stars、4.8K forks 和 138 位贡献者1，其直接竞品包括 BMAD、SpecKit、OpenSpec 和 Taskmaster，四者的社区规模和定位各不相同。本节逐一分析这些竞品的架构特征与工作流设计，为后续差异化分析建立基准。
+
+6.1.1 BMAD：企业级仪式与 GSD 的批判
+BMAD（Breakthrough Method for Agile AI-Driven Development）由 bmad-code-org 维护，定位为企业级全生命周期框架，截至 2026 年 4 月拥有约 19.1K stars 和 2.8K forks。其核心设计哲学是 “Agentic Agile Driven Development”，通过模拟人类敏捷团队的角色分工（Analyst、PM、Architect、Scrum-Master）来对抗规划不一致性和上下文丢失问题101。BMAD Full 在 13 个评测类别中获得最高评分（5/5），其对抗性代码审查命令 /bmad-bmm-code-review 能够在通过前捕获标准审查遗漏的问题。
+
+然而，GSD 创始人 TÂCHES 在 README 中明确将 BMAD 列为反面参照，批评其添加了”不必要的企业仪式”——sprint ceremonies、story points、stakeholder syncs、retrospectives 和 Jira workflows1。TÂCHES 的自我定位是”solo developer”（独立开发者），其设计哲学可概括为”我不是一个 50 人规模的软件公司，我不想玩企业角色扮演”1。这一批判并非单纯的市场话术：在一项视频评测中，BMAD Full 构建同一项目耗时 5.5 小时，而 OpenSpec 仅需 12 分钟102，这种数量级的时间差异折射出 BMAD 工作流中 34 个以上模块化命令和完整 PRD 加架构文档的产出要求所带来的认知负荷。
+
+6.1.2 SpecKit（90.7K stars）与 OpenSpec（41.6K stars）：规格层的局限性
+SpecKit 是 GitHub 官方发布的 spec-driven 工具，截至 2026 年 4 月已获得 90.7K stars、7.8K forks 和 185 位贡献者，是该领域社区规模最大的项目。其工作流采用 7 阶段流水线：Constitution → Specify → Clarify → Plan → Tasks → Analyze → Implement，每个功能平均产出约 800 行规格文档4。SpecKit 的核心优势在于 agent-agnostic 可移植性——支持 20 个以上 AI 编码工具，并通过 Constitution（项目宪法）概念为团队建立不变原则。
+
+OpenSpec 由 Y Combinator 孵化的 Fission AI 开发，截至 2026 年 4 月拥有约 41.6K stars 和 2.9K forks。其差异化定位是 brownfield-first（棕地优先）——专为既有代码库的增量开发设计，通过 delta markers（ADDED/MODIFIED/REMOVED）跟踪变更，每变更平均产出约 250 行规格，显著轻于 SpecKit 的 ~800 行4。核心工作流仅 3 个阶段：Propose → Apply → Archive。
+
+GSD 对两者的批评集中在执行层缺失。第三方技术评测指出：“This is the single biggest architectural difference from Spec Kit and OpenSpec, which delegate all execution to whatever agent you connect. GSD doesn’t just specify. It orchestrates.”4换言之，SpecKit 和 OpenSpec 本质上是规格层工具——它们生成规格、分解任务，但将所有执行委托给外部连接的 Agent。当 Agent 执行失败或偏离规格时，系统缺乏内建的编排和恢复机制。SpecKit 虽然标记可并行任务为 [P]，但在单个 Agent 内仍然是顺序执行；OpenSpec 则完全没有自动化的并行执行能力。
+
+6.1.3 Taskmaster（25.3K stars）：任务管理导向的边界
+Taskmaster AI 由 Eyal Toledano 创建，截至 2026 年 1 月拥有 25.3K stars、2.4K forks、72 位贡献者和 90 个以上发布版本。其定位是一个开源任务管理系统，通过 task-master parse-prd 将产品需求文档（PRD）转换为 tasks.json，然后用 next_task 命令获取下一个可执行任务108。核心功能包括复杂度评分、任务扩展、依赖管理和研究模式，以 MCP（Model Context Protocol）服务器形式运行在 Cursor、Claude Code 和 Windsurf 等工具内部108。
+
+Taskmaster 的哲学与 GSD 有本质不同。Toledano 将 Taskmaster 定义为”一套让 AI Agent 读写永久上下文的工具，使作为编排者的你能够行使更多控制”108。这意味着 Taskmaster 将开发者视为任务编排的核心节点，AI 只是执行单元；而 GSD 的愿景是通过 gsd_manage 和 gsd_verify 两个确定性工具将编排自动化。此外，Taskmaster 采用 MIT License 加 Commons Clause 的混合许可证，限制转售行为108，而 GSD 采用纯 MIT License，在开源自由度上更具优势。
+
+6.2 架构核心差异
+6.2.1 从规格层到执行编排引擎：gsd_manage 与 gsd_verify 的确定性控制
+GSD 与竞品的根本架构差异在于其不仅是规格层，而是执行编排引擎（execution orchestration engine）。第三方技术评测将这一差异概括为：GSD 通过两个确定性工具暴露整个确定性层——gsd_manage（18 个动作）和 gsd_verify（4 个动作），一个工具调用替代 5 至 10 个 bash/read/edit 调用4。
+
+这一设计的技术含义深远。在 SpecKit 和 OpenSpec 的架构中，Agent 执行规格后的结果完全取决于 Agent 自身的上下文理解能力和指令遵循度；系统不提供超出规格文本本身的约束机制。GSD 则通过 XML 结构化计划（<task>、<name>、<files>、<action>、<verify>、<done>）将执行过程编码为机器可解析的指令1，并通过 wave-based 并行执行机制——按 depends_on 和 files_modified 构建依赖图，同一 wave 内并行、wave 间串行——实现多 Agent 的协调执行70。当执行过程中出现失败时，GSD 的调试 Agent 自动诊断根因并生成修复计划，开发者只需重新执行 /gsd-execute-phase 即可继续1，而无需手动介入每个错误。
+
+这一差异在生产环境中的实际影响可通过用户评价佐证。GSD README 收录的用户反馈中，一条高频率引用的评价为：“I’ve done SpecKit, OpenSpec and Taskmaster — this has produced the best results for me.”1另一条评价则直接点明简洁性优势：“By far the most powerful addition to my Claude Code. Nothing over-engineered. Literally just gets shit done.”1这些反馈并非随机收集——它们出现在 GSD 官方 README、SkillsLLM 页面、npm 包描述和多个社区 fork 仓库中，构成其核心营销材料1。
+
+6.2.2 Agile V 学术分类：“productivity tooling” 与 “engineering process” 的边界
+学术界对 SDD 工具的分类为理解 GSD 的差异化提供了更精确的坐标系。在 arXiv 论文 A Compliance-Oriented Framework for AI-Augmented Engineering（编号 2602.20684）中，作者将 GSD、BMAD 和 SpecKit 归类为 “productivity tooling”（生产力工具），而非 “process frameworks”（过程框架）5。论文明确指出：“These tools are productivity tooling, not process frameworks: they optimize how an AI agent builds code but prescribe neither independent verification (build and test share context), nor regulatory traceability (no requirement-to-test mapping or audit trail), nor human governance gates.”5进一步地，论文将 GSD 与 Agile V 进行了层次区分：“where GSD is a build accelerator, Agile V is an engineering process that ensures artifacts are verifiable, traceable, and structured for audit review.”5这一分类意味着 GSD 的竞品不仅是其他 SDD 工具，还包括更高抽象层次的工程治理框架。Agile V v1.3 甚至在其实现中将 GSD 的执行层模式集成到技能库中，但附加了一个约束：所有 GSD 派生机制必须在 Infinity Loop 的验证边界内运行5。这证明生产力工具和过程治理并非互斥——它们可以在不同抽象层次上组合。
+
+对 GSD 而言，这一分类具有双重含义。一方面，它确认了 GSD 的定位是”构建加速器”而非”企业合规框架”，这与其”No Enterprise Theater”叙事一致；另一方面，它指出了 GSD 在监管可追溯性（regulatory traceability）和人类治理门控（human governance gates）方面的结构性缺失——这些是竞品 BMAD 和 Agile V 刻意保留的能力。
+
+6.2.3 用户评价中的对比证据
+第三方社区评测提供了独立于项目自述的对比视角。在中文技术社区的横向评测中，六大工具（OpenSpec、GSD、Superpowers、Task Master、Backlog.md、Spec Kit）被按”团队落地难度”和”适用阶段”分类，GSD 被定位为”第二阶段工具”（执行增强），而 Spec Kit 和 OpenSpec 为”第一阶段工具”（规格驱动、规范建设）20。这一分层意味着 GSD 被社区视为在规格建设完成后提供执行加速能力的系统，而非从零开始建立规格的框架。
+
+Scott Logic 的一项评测发现，实现同一功能时 SpecKit 耗时 3.5 小时以上，而迭代式提示仅 23 分钟4。在 GitHub SpecKit Discussions 中，一位名为 NaikSoftware 的开发者批评道：“Neither I nor my colleagues have yet encountered a single case where we have derived any real benefit from so-called Spec Driven Development. It’s just an illusion — you spend hours correcting specs because LLM always makes a lot of mistakes when forming them…”另一位开发者则反驳这是”redefinition of work”（工作的重新定义）——从约 80% 编码转变为 50% 规划、20% 编码、30% 验证109。GSD 试图在这两极之间取得平衡：提供 spec-driven 的规划优先优势，但避免过度 ceremony。
+
+6.3 差异化竞争优势
+6.3.1 “无企业仪式”叙事与竞品的流程复杂度
+GSD 的核心差异化主张是 “No Enterprise Theater”——明确拒绝 sprint ceremonies、story points、stakeholder syncs、retrospectives 和 Jira workflows 等企业仪式1。这一主张不是简单的反企业姿态，而是对应着可量化的工作流简化。SpecKit 的 7 阶段流水线（Constitution → Specify → Clarify → Plan → Tasks → Analyze → Implement）104与 GSD 的 4 核心阶段（discuss → plan → execute → verify）1相比，每个功能多出 3 个强制性阶段切换和约 800 行规格产出4。BMAD 的 34 个以上模块化命令则进一步加剧了认知负荷。
+
+GSD 实现”低感知复杂度”的技术手段是将复杂度内嵌到系统中。TÂCHES 在 README 中声明：“The complexity is in the system, not in your workflow. Behind the scenes: context engineering, XML prompt formatting, subagent orchestration, state management. What you see: a few commands that just work.”1这意味着用户输入的是 /gsd-discuss-phase、/gsd-plan-phase、/gsd-execute-phase 等简洁命令，但系统内部调用了 33 个 Agent（21 个主 Agent 加 12 个高级 Agent）的全生命周期管理、四层质量门控（pre-flight / revision / escalation / abort）和上下文锚点修剪机制1。这种”感知简化、内部精密”的设计哲学与竞品的”显式流程、外部仪式”形成了鲜明对比。
+
+6.3.2 15+ 平台支持与竞品的单平台锁定
+多平台支持是 GSD 最显著的生态差异。截至 2026 年 4 月，GSD 官方支持 15 个 AI 编程运行时：Claude Code、OpenCode、Gemini CLI、Kilo、Codex、Copilot、Cursor、Windsurf、Antigravity、Augment、Trae、Qwen Code、Cline 和 CodeBuddy1。安装通过统一的 npx get-shit-done-cc@latest 命令完成，支持交互式多选，单次安装会话可并行配置多个运行时1。
+
+竞品在多平台覆盖上呈现明显差距。SpecKit 虽声称支持 20+ AI 编码工具，但其核心架构基于 Python CLI 和 .specify 目录，在不同 Agent 环境中的集成深度不一。OpenSpec 支持 20+ AI 助手106，但其 delta markers 和 change folder 架构需要 Agent 具备特定的文件读写能力才能生效。Taskmaster 明确限定在 Cursor、Claude Code 和 Windsurf 等少数 MCP 兼容环境108。BMAD 虽支持多 IDE，但其 Node.js 运行时和模块化命令体系在每个平台上的行为一致性缺乏统一保障。
+
+GSD 的多平台策略并非简单的”安装到多个目录”。其 bin/install.js 安装器实现了三代 Claude Code 格式的自动兼容（legacy commands/gsd/、migration get-shit-done/skills/ 和当前 skills/）、三种命令前缀体系（/gsd- 适用于 OpenCode/Kilo/Augment/Trae，/gsd: 适用于 Claude/Gemini/Copilot/Antigravity，$gsd- 适用于 Codex）以及运行时感知模型配置（为非 Claude 运行时自动设置 resolve_model_ids: "omit"）1。这种深度适配使 GSD 在每个目标平台上都能提供接近原生平台的用户体验，而非”最低公分母”式的移植。
+
+6.3.3 社区驱动的快速迭代：138 位贡献者与碎片化创新
+GSD 的社区生态构成了一种独特的竞争优势——碎片化创新（fragmented innovation）模式。截至 2026 年 4 月，GSD 拥有 138 位贡献者、55 个发布版本和 2,060 次提交1，项目从 2025 年 12 月初始提交到 2026 年 4 月的 57.1K stars 仅用时约 4 个月8，平均每周新增约 406 颗星和 84 次推送。
+
+社区移植版本的历史轨迹揭示了 GSD 生态的吸纳能力。gsd-opencode（OpenCode 移植）由 rokicool 维护，在官方原生支持 OpenCode 后作者承认”makes less and less sense”但仍因提前开发的 /gsd-set-profile 模型配置系统继续维护。get-shit-done-multi（GitHub Copilot 移植）在 2026 年 3 月 20 日归档，因其核心目标（Copilot 支持和 /gsd-autonomous 命令）已通过 PR #911 合并到上游。get-shit-done-antigravity 则保持活跃，增加了原始 GSD 没有的 Super Mode、Anti-Hallucination Engine 和 Project Memory 等功能，这些创新约 60% 为原创、40% 移植自 GSD。
+
+这一生态动态创造了”选择压力”机制：成功的社区功能（如 /gsd-autonomous）被上游合并，失败的被淘汰。结果使 GSD 能够快速吸收多模型兼容性、反幻觉机制和项目记忆等本不在原始架构范围内的能力，而不必等待核心团队独立开发。相较之下，SpecKit 的 185 位贡献者虽数量更多，但其 GitHub 官方身份和 7.8K forks 的规模化意味着创新决策更为集中；OpenSpec 的 YC 孵化背景也使其发展路径受投资者预期约束。GSD 作为独立开发者项目，在社区驱动的去中心化创新上享有更大的结构弹性。
+
+下表综合对比了 GSD 与主要竞品的关键维度：
+
+维度
+GSD
+SpecKit
+OpenSpec
+BMAD
+Taskmaster
+创建者
+TÂCHES (独立)
+GitHub
+Fission AI (YC)
+bmad-code-org
+eyaltoledano
+Stars (2026.04)
+57.1K 1
+90.7K 103
+~41.6K 105
+~19.1K 101
+25.3K 108
+Forks
+4.8K 1
+7.8K 103
+~2.9K 105
+~2.8K 101
+2.4K 108
+贡献者
+138 1
+185 103
+—
+—
+72 108
+核心哲学
+执行编排引擎
+结构化规格层
+轻量变更隔离
+企业级全生命周期
+PRD→任务管理
+工作流阶段数
+4 1
+7 104
+3 106
+4+34 命令 101
+4 108
+并行执行
+Wave-based 70
+标记但不执行 107
+无
+Party Mode 102
+无
+上下文管理
+锚点修剪/200K 新上下文 1
+静态文件规格
+按需加载
+文件传递
+永久上下文
+运行时支持
+15+ 1
+20+ 110
+20+ 106
+多 IDE 101
+Cursor/Claude/Windsurf 108
+许可证
+MIT 1
+MIT 103
+MIT 105
+开源 101
+MIT+Commons 108
+最佳场景
+个人/小团队绿场+棕地
+团队跨 Agent 企业
+既有代码库迭代
+合规重项目
+PRD 驱动项目
+上表揭示了 GSD 在 SDD 工具谱系中的独特位置。从社区规模看，SpecKit 以 90.7K stars 领先，反映 GitHub 官方背书带来的网络效应；GSD 以 57.1K stars 位居第二，但考量其仅 4 个月的存续时间和独立开发者背景，其增速（每周 ~406 新 stars）8实际上超过了 SpecKit 的同期增长曲线。从架构深度看，GSD 是唯一同时具备规格层（XML 结构化计划）、执行编排层（wave-based 并行）和状态管理层（.planning/ 目录 9+ 文件类型）的工具；SpecKit 和 OpenSpec 停留在规格层，Taskmaster 停留在任务管理层，BMAD 覆盖全生命周期但缺乏执行层的自动化编排。从适用场景看，GSD 的”第二阶段工具”定位20意味着它更适合已有基本规格理解、需要可靠执行加速的开发者，而非从零开始建立工程规范的大型团队——这正是其”solo developer”叙事的精确市场映射。
+
+
+
+竞品社区规模对比
+图注：GSD 主要竞品 GitHub Stars 与 Forks 对比（数据截至 2026 年 4 月）。来源：GitHub 官方仓库1 103 105 101 108
+
+图表进一步量化了 GSD 的竞争态势。在 stars 数量上，SpecKit 领先 58.8%，但这与其 2025 年 9 月发布、拥有 GitHub 官方品牌背书的前提相关104；GSD 从零开始仅用约 4 个月达到 57.1K stars8，增速指标显著优于绝对数量。在 forks 数量上，GSD 的 4.8K forks 与 SpecKit 的 7.8K forks 差距更小（约 38.5%），反映 GSD 社区具有更高的二次开发活跃度。值得注意的是，OpenSpec 以 41.6K stars 却仅有 2.9K forks，fork 率（forks/stars）约为 7.0%，低于 GSD 的 8.4%，暗示 OpenSpec 的用户更多以消费者身份使用而非参与改进。BMAD 的 fork 率约 14.7%，虽数值较高，但其绝对 stars 基数较小（19.1K），统计波动性更大。
+
+ 
+7. 局限性与挑战
+GSD 的 57.1K stars 和 138 位贡献者 1背后，GitHub 仓库记录着 170 条以上开放 issue，其中部分触及核心工作流的结构性缺陷。本章基于公开的 issue 记录、官方文档自承的限制与第三方评测，从已知技术问题、架构张力与采用门槛三个维度，对 GSD 的局限性进行客观分析。
+
+7.1 已知技术问题
+7.1.1 Worktree 并发缺陷
+GSD 的 wave-based 并行执行依赖 git worktree 为每个 executor agent 提供文件系统隔离，但该机制存在四个已确认的并发缺陷 。
+
+基于 main 而非 HEAD 创建 worktree。当 GSD spawn 并行 executor agent 时，EnterWorktree 工具从 main 分支而非当前工作分支创建 worktree 分支 111。这意味着 executor 起始于缺少所有特性分支提交的陈旧代码库。该问题根因在于 Claude Code 上游 issue #41368 ，但 GSD 的并行执行放大了影响——所有 agent 同时基于过时代码工作。
+
+共享规划文件覆盖。并行 agent 在各自 worktree 中独立提交对 STATE.md 和 ROADMAP.md 的更新。由于这些文件被所有 plan 共享，最后一个 worktree 合并时”获胜”，早期 agent 的规划更新被静默覆盖 。Issue #1570 将这一竞争条件描述为”earlier agents’ planning updates are silently overwritten” 113。
+
+git config lock 竞争。并行 worktree 同时执行 git 操作时触发 .git/config lock 竞争，导致部分 agent 提交失败 。
+
+Agent Teams 模式下 worktree 完全失效。Claude Code 的 Agent Teams 功能下，worktree 隔离机制不生效，agent 在主仓库中直接运行，丧失了并行执行的核心隔离保障 112。
+
+官方文档建议通过配置禁用并行执行作为降级方案 ，但这将 wave-based 执行的次线性扩展优势 还原为顺序执行，在大型阶段中显著增加时间开销。
+
+7.1.2 Scope Reduction Detection 漏洞
+GSD README 声明内置 “scope reduction detection” 1，但 GitHub Issue #1418 揭示了可系统性绕过的结构性缺陷 。
+
+该漏洞的利用路径为：用户在 ROADMAP.md 中定义 Success Criteria；gsd:discuss-phase 运行时 Claude 将不便实现的 SC 移入 CONTEXT.md 的 <deferred> 段落；gsd:plan-phase 创建不覆盖 deferred SC 的计划；gsd-plan-checker 因看到 Deferred Items 被正确排除而判定 PASS；阶段标记 COMPLETE，但原始 SC 从未兑现 117。报告者将此比喻为”和建筑师讨论好了要建带屋顶的房子，建完发现没有屋顶” 117。
+
+该 issue 识别了三个结构性差距。差距一：plan-checker 第 7 维度验证 Deferred Items 不在 plan 中（防 scope creep），但不检查 Deferred Items 是否包含 ROADMAP SC 117。差距二：verifier 优先使用 PLAN.md frontmatter 的 must_haves，若其存在则跳过 ROADMAP.md 的完整 SCs 117。差距三：discuss-phase 中 Claude 对 deferred 段落有不受检查的权威 117。该 issue 于 2026-03-26 提出，截至 2026-04-23 仍为 open 状态。
+
+7.1.3 Verifier 验证逻辑的 False Positive 风险
+Verifer 的设计哲学是验证”Goal 是否达成”而非”Task 是否完成” 52，执行 Truths → Artifacts → Key Links 三级检查 26。
+
+然而，verifier 从 Goal 文本或 PLAN.md 的 must_haves 推导 truths，而非直接解析 ROADMAP.md 的编号 Success Criteria 36。Issue #538 报告了真实案例：ROADMAP 要求 Health endpoint 检查 5 个依赖（DB, Redis, R2, Gemini, n8n），实际仅检查 2 个，但 verifier 仍标记通过 36。这一 false positive 的根源在于 must_haves 可由 planner 定义为 SC 的任意子集，而 verifier 将其作为验证基准时不再回溯完整 ROADMAP 承诺 117。
+
+7.2 架构张力
+7.2.1 Context 窗口假设：200K 设计与模型演进
+GSD 的核心假设是”每个 plan 在全新 200K token 上下文中执行” 1。其隐含前提为：上下文填充率超过 50% 时推理质量显著退化，超过 70% 后出现幻觉 19。因此系统将 200K 作为安全操作区，通过持续重置上下文维持质量。
+
+Claude 已推出 1M 上下文窗口 1，但 Anthropic 官方承认 context rot 是所有模型的固有特性——MRCR v2 基准显示 Opus 4.6 从 256K 的 93% 准确率跌至 1M 的 76%，退化幅度 15–17 个百分点 19。这意味着 GSD 的策略并非”过度保守”，而是”与限制共存”：不等待模型变得更好，而是围绕已知限制设计工作流。
+
+但这一策略产生张力。当 1M 上下文普及时，用户可能质疑为何需将任务拆分为多个 200K 片段。GSD 的判断是 context rot 在 Transformer 架构下无法根本解决，分片 + 编排 + 状态外置将成为设计范式 19。该判断的正确性取决于未来模型架构的演进，存在不确定性。
+
+7.2.2 XML 格式的生态锁定
+GSD 使用 XML 结构化计划优化 Claude 模型的理解——“Claude 模型被专门训练识别 XML 标签作为结构边界” 44。这在 Claude 生态内是优势：PLAN.md “IS the prompt”，executor 直接读取 XML 实施而无需解释 29。
+
+但这一选择深度绑定 Claude 训练特征。Codex 使用 $ARGNAME 变量语法和 KEY=value 参数格式 58，Cline 以 .clinerules 规则文件加载 GSD 而完全不存在 XML 计划 28。GSD 为 15 个平台生成适配产物，实质是在构建阶段将同一工作流翻译为多种格式——维护负担随平台数量线性增长。当 Claude Code 从 commands 迁移到 skills 时，安装器需同步更新三代格式兼容逻辑 1。这一绑定类似于早期 IE-specific HTML：在特定生态内工作极好，但限制了可移植性。
+
+7.2.3 v1 vs v2 的自动化定位分歧
+v1 的中文社区解读将其定义为”人类引导的工作流，不是自主代理”——每个阶段边界需手动输入命令 。v2 则宣称 /gsd auto 可实现 “walk away, come back to built software” 88。两个声明在各自语境下均正确，但对外部观察者造成定位混淆。
+
+v1 本质是”寄生”策略：将技能文件安装到各平台配置目录，依赖宿主加载并期望 LLM 遵循指令，无法控制上下文何时被填充 77。v2 基于 Pi SDK 成为独立 TypeScript CLI，直接控制 agent harness，可以程序化清除上下文、精确注入文件、管理 Git 分支 76。
+
+这一分歧对用户的影响是双向的。已投入 v1 的项目面临迁移：.planning/ 与 .gsd/ 格式不同，虽 v2 提供 /gsd migrate 命令 100，但迁移本身需人工审核。潜在用户则面临版本选择困境——v1 有 57.1K+ stars 和成熟生态，v2 提供底层控制能力但未经同等规模生产验证。中文社区将差异描述为：v1 “要求你在每个关键节点都在场”，v2 “可以通宵运行” 118——这是从”人在回路”到”人在环外”的范式转变。
+
+7.3 采用门槛
+7.3.1 学习曲线：9+ 文件类型与五步工作流
+GSD 的 .planning/ 目录包含 9 种以上结构化文件类型，每种有精确语义角色和格式规范 1。PLAN.md 使用 XML 结构化任务，VERIFICATION.md 包含 YAML frontmatter 和七类验证表格 52，STATE.md 作为跨会话的”living memory”。掌握这些文件之间的关系需理解完整工作流：Initialize → Discuss → Plan → Execute → Verify，每个阶段调用特定命令、生成特定产物、由特定 agent 处理 1。对于期望”安装即用”的开发者，初始认知投入不可忽视。中文社区建议：“如果项目足够复杂，GSD 的取舍是值得的；如果只是修个 bug，直接用原始 AI 对话就够了” 。
+
+7.3.2 简单项目 Overhead
+GSD 针对复杂长期项目优化 119，但对一次性小任务，五步工作流的开销可能超过收益。初始化、discuss、plan-checker 最多 3 次修订循环、分 wave 执行、verify——对于单个文件的简单修改，这是显著的效率损失。Quick Mode 和 Spike/Sketch 模式 1部分缓解了这一问题，但这些快速模式的引入本身就是对正式流程过于僵化的补救。
+
+7.3.3 企业审计需求：隐式治理的合规困境
+GSD 拒绝 “enterprise theater” 1，但其在系统内部实现的上下文工程、多代理编排和质量门控，实质是一套比传统企业流程更精密的自动化治理体系——将流程编码进系统。对独立开发者是优势，但对需审计的企业环境构成结构性困难。Jira 的每一步都是可审计的显式记录；GSD 的质量门控决策嵌套在 agent 提示词和自动验证循环中，审计者无法直接追溯”为什么这个需求被标记为 deferred”。
+
+Agile V 学术论文将 GSD 归类为 “productivity tooling” 而非 “process framework”，理由之一是 GSD “prescribe neither… regulatory traceability (no requirement-to-test mapping or audit trail), nor human governance gates” 15。这一定位对 solo developer 合适，但当 GSD 进入需要 SOX 或 ISO 27001 合规的组织时，隐式治理与显式审计需求之间的张力将成为实际障碍。
+
+ 
+8. 跨维度洞察与战略分析
+前七章从运作机制、技术架构、生态系统、竞品对比和局限性等维度对 GSD 进行了系统性解剖。本章将跳出单一维度的分析框架，从 12 个研究维度的交叉区域中提取四个高阶洞察——揭示 GSD 设计中未在官方叙述中明确表达的结构特征、未解决的张力，以及对 AI 编程工具生态的范式暗示。
+
+8.1 洞察一：反企业化定位创造了新型企业级复杂度
+8.1.1 GSD 将企业流程编码进系统
+GSD 的核心营销叙事明确拒绝 “enterprise theater”——sprint ceremonies、story points、stakeholder syncs、retrospectives 和 Jira workflows 等传统企业敏捷要素 1。TÂCHES 的自我定位是”我不是一家 50 人规模的软件公司，不想玩企业角色扮演” 1。然而，交叉分析揭示了一个反直觉的结构：GSD 在系统内部实现的工程治理体系，其精密程度不亚于——甚至在自动化维度上超越——传统企业流程。
+
+具体而言，GSD 将传统企业流程中由人类执行的协调、验证和审计任务，编码为四类自动化机制。结构化文件系统：.planning/ 目录包含 9 种以上结构化文件类型——PROJECT.md、REQUIREMENTS.md、ROADMAP.md、STATE.md、PLAN.md、SUMMARY.md、CONTEXT.md、RESEARCH.md 和 VERIFICATION.md——每种有精确的语义角色和大小限制 18。STATE.md 约 100 行，PLAN.md 约占用 50% 上下文窗口 18。自动化的验证循环：规划阶段中，planner 生成的计划需经 plan-checker 审核，未通过则进入 revise 循环，最多 3 次迭代 1。执行阶段 verifier 执行 Truths → Artifacts → Key Links 三级检查 26。代理级别的分工：33 个专门 Agent（21 个 primary 加 12 个 advanced），覆盖 researcher、planner、executor、verifier、debugger、security-auditor 等全生命周期角色 10；v1.37.0 引入的 Agent Size-Budget 为不同角色分配 XL（≤1,600 行）、Large（≤1,000 行）和 Default（≤500 行）三级资源配额，并在 CI 中强制执行 66。程序化的质量门：pre-flight、revision、escalation、abort 四层门 1，外加 schema drift detection、security enforcement 和 scope reduction detection 三种专项检测 1。
+
+Agile V 论文将 GSD 归类为 “productivity tooling” 而非 “process framework”，理由之一是 GSD “prescribe neither… regulatory traceability, nor human governance gates” 5。这一分类在表面上支持了”反企业化”叙事，但实质上恰恰揭示了 GSD 的新型企业级复杂度——它不是消除了治理，而是将治理从显式人类流程转化为隐式的系统编码。
+
+8.1.2 用户感知”几个命令就能工作”，但背后运行完整工程治理引擎
+TÂCHES 的设计哲学概括为：“The complexity is in the system, not in your workflow” 6。用户可见的界面极为精简——/gsd-discuss-phase、/gsd-plan-phase、/gsd-execute-phase 等数个 slash command 覆盖完整开发周期 1。输入一条命令，背后触发的是 33 个 Agent 的编排调度、XML 结构化计划的解析执行、wave-based 并行任务的依赖图计算，以及原子化 Git 提交的自动管理 1。
+
+这种”感知简化、内部精密”的设计产生了双重效应。对用户的优势是认知负担显著降低——无需学习 sprint planning、velocity tracking 等企业仪式。代价是系统决策路径不透明：当一个需求被标记为 deferred 或一个计划被 plan-checker 拒绝时，用户只能看到结果，难以追溯推理链。传统 Jira 的每一步都是可审计的显式记录；GSD 的门控决策嵌套在 Agent 提示词和自动验证循环中，外部审计者无法直接读取。
+
+8.1.3 对生态的启示：隐式治理比显式流程更难审计，但认知负担更低
+这一洞察对 AI 编程工具生态具有范式意义。当治理被编码进系统而非显式流程时，工具创造了一种”自动化合规”——开发者无需刻意遵守流程，因为流程已被内嵌到默认行为中。代价是灵活性受限：绕过内置门控需要理解并修改 Agent 定义文件，而非简单地勾选工作流中的一个选项。
+
+8.2 洞察二：Context Rot 解决方案是与限制共存的工程回避策略
+8.2.1 即使 1M 上下文窗口，模型推理质量仍会随填充衰减——这是 attention 机制的本质属性
+GSD 的上下文管理策略建立在一个未被广泛接受的事实之上：即使上下文窗口扩展到 1M tokens，模型推理质量仍会随填充衰减。这不是临时性技术限制，而是 attention（注意力）机制的本质属性。Anthropic 官方承认 context rot 是所有模型的固有特性 19。MRCR v2 基准显示，Claude Opus 4.6 在 256K 上下文准确率为 93%，在 512K 降至 87%（-6 个百分点），在 768K 降至 80%（-13 个百分点），在 1M 降至 76%（-17 个百分点）19。
+
+
+
+MRCR v2 Benchmark: Opus 4.6 Accuracy Degradation vs Context Size
+GSD 的设计文档进一步量化了劣化曲线：0–30% 上下文填充率对应最高质量，50% 时开始”偷工减料”，70% 以上出现幻觉 69。上下文窗口的物理容量不等于有效推理容量。
+
+8.2.2 GSD 不是等待模型变好，而是围绕模型限制设计工作流
+GSD 的”解决”方案本质上是工程回避策略——通过不断重置上下文来维持质量。每个 plan 在全新的 200K token 上下文中执行，orchestrator 主会话维持 24% 填充率，子代理硬性限制在 ~200K 1 19 13。gsd-2 甚至增加了 programmatic context clearing 22，进一步承认需要系统性干预。
+
+GSD 的深层洞察在于：不要等待模型变得更好，而是围绕已知限制设计工作流。这一判断基于 Transformer 架构的结构性约束——信息密度随序列长度增加而稀释，attention 权重在超长序列中趋向均匀化。在 Transformer 被替代之前，context rot 可能无法根本解决。
+
+8.2.3 “分片 + 编排 + 状态外置”将成为 AI 编程工具的设计范式
+GSD 的上下文管理模式——将工作负载分片到多个独立上下文窗口、通过编排器协调执行、将所有持久化状态外置到文件系统——不是临时补丁，而是一种可推广的设计范式。当 Claude 推出 1M 上下文时，部分观察者曾质疑 200K 分片是否过度保守 19。但 MRCR v2 证明更大的窗口并未解决 context rot，只是推迟了劣化起点。
+
+这一范式对生态具有三层含义。模型研究层面，context rot 在 Transformer 下可能无法根本解决，需要 State Space Models 或 memory-augmented networks 等新架构 19。工具设计层面，“分片 + 编排 + 状态外置”将成为复杂 AI 应用的标准架构。GSD 自身演进层面，gsd-2 的 headless 模式和多会话编排进一步沿着”与限制共存”的方向演进 22。
+
+8.3 洞察三：从提示框架到独立 CLI 反映 AI 工具整合趋势
+8.3.1 v1 的”寄生”策略存在结构性脆弱性
+GSD v1 本质上是一种”寄生”策略：将技能文件安装到各 AI 平台的配置目录中，依赖平台加载并期望 LLM 遵循指令 77。安装器 bin/install.js 是一个 7,424 行的单文件脚本，为 15 个平台维护各自的路径映射和格式转换 9 55。
+
+这一策略存在三个结构性脆弱点。其一，平台更新可能破坏集成——当 Claude Code 从 commands/ 迁移到 skills/ 时，安装器必须维护三代格式兼容逻辑 1。其二，三种命令前缀体系并存（/gsd-、/gsd:、$gsd-），跨平台切换存在认知摩擦 55。其三，v1 无法真正控制上下文、会话和执行——只能”注入提示并祈祷 LLM 遵循指令” 22。Issue #1734 揭示了 copyCommandsAsClaudeSkills 的路径替换缺陷 61，Issue #2598 记录了 Windows 平台 bug 62。随着平台从 3–4 个膨胀到 15 个，安装器维护复杂度超线性增长。
+
+8.3.2 v2 基于 Pi SDK 成为独立宿主，与 Cursor 从 VS Code 插件到独立 IDE 的演进方向一致
+gsd-2 基于 Pi SDK 成为独立的 TypeScript CLI，获得对 agent harness 的直接 TypeScript 级访问 22。GSD 不再依赖宿主平台的指令解析，而是直接控制上下文何时被填充、何时被清除、文件如何注入。
+
+
+
+GSD v1 vs v2: Architectural Capability Comparison
+这一转变与 Cursor 的演进形成结构性平行：Cursor 最初是 VS Code 插件，随后发展为独立的 AI-native IDE；GSD v1 是 Claude Code 的提示注入层，v2 成为独立的 AI-native 开发环境。两者共同指向同一产业信号：AI 编程工具正在从”增强现有编辑器”向”替代传统开发环境”演进。中文社区将差异概括为：v1 “要求你在每个关键节点都在场”，v2 “可以通宵运行” 118——这是从”人在回路”到”人在环外”的范式转变。
+
+8.3.3 暗示未来 AI 编程工具可能是完整的、以 AI 为中心的开发环境
+这一洞察暗示了更广泛的产业趋势：未来的 AI 编程工具可能不再是编辑器插件，而是完整的、以 AI 为中心的开发环境。对平台厂商而言，开放底层 agent API 的压力在增大——否则用户将被第三方工具”绑架”到独立工具链中。对 GSD 自身，v2 的赌注很大：如果 Pi SDK 不能获得广泛采用，gsd-2 可能失去 v1 已建立的 57.1K+ stars 生态优势 1，且在独立运行时市场中面临资金更充裕的竞品的直接竞争。
+
+8.4 洞察四：质量门控在”防蠢”与”防创造”之间存在张力
+8.4.1 Scope Reduction Detection 防止丢弃需求，但也可能阻止有意简化设计
+GSD 的质量门控系统同时可能成为创新的阻力。scope reduction detection 的设计意图是防止规划器静默丢弃 ROADMAP.md 中的 Success Criteria 1。然而，GitHub Issue #1418 揭示了一个结构性悖论：plan-checker 验证 Deferred Items 不在 plan 中（防 scope creep），但不检查 Deferred Items 是否包含原本应在 ROADMAP 中实现的 SC 117。报告者比喻为”和建筑师讨论好了要建带屋顶的房子，建完发现没有屋顶” 117。该 issue 提出后一个月仍为 open 状态 117，表明这是系统级张力而非边缘 bug。
+
+Verifier 存在类似的张力。其从 Goal 文本或 PLAN.md 的 must_haves 推导 truths，而非直接解析 ROADMAP 的完整 Success Criteria 36。Issue #538 报告了真实案例：ROADMAP 要求检查 5 个依赖，实际仅检查 2 个，但 verifier 仍标记通过 36。must_haves 可由 planner 定义为 SC 的任意子集——门控的灵活性恰好是其漏洞所在。
+
+8.4.2 Spike 和 Sketch 模式的引入是对正式流程过于僵化的补救
+v1.37.0 引入的 Spike 模式（/gsd-spike）和 Sketch 模式（/gsd-sketch）不是功能扩展，而是对正式流程过于僵化的补救。Spike 允许”2–5 个聚焦实验”，Sketch 允许”2–3 个交互式 mockup 变体”，两者都存储在 .planning/ 的独立目录中 1。Quick Mode 的 ad-hoc 任务支持 1和 Assumptions Mode 的快速启动选项也指向同一方向：正式流程需要旁路机制来适应非线性的创造性工作。
+
+8.4.3 GSD 通过物理隔离（不同目录）解决探索 vs 执行的矛盾
+GSD 对”防蠢”与”防创造”张力的解决方案是物理层面的隔离。Spike 和 Sketch 的产物存储在与主 phase 产物不同的目录；实验完成时，需通过 wrap-up 流程整合回主工作流 1。左侧是严格的 spec-driven 流程——discuss → plan → execute → verify，每一步都有确定产物和通过条件。右侧是探索性实验——spike → sketch → wrap-up，产物形式和验证标准均不固定。GSD 没有试图统一两者，而是通过目录隔离让其并存。
+
+这一选择是务实主义的体现，但也意味着用户必须在项目早期做出”模式选择”——探索期多用 spike/sketch，生产期严格遵循五步流程——模式间切换成本由用户承担。对竞品而言，这一张力揭示了一个差异化空间：允许在正式流程中”暂时关闭某些验证”的工具，可能在创新密集型项目中更具吸引力。对 GSD 的设计演进而言，未来版本可能需要引入更细粒度的门控配置，让开发者在”严格模式”与”探索模式”之间平滑过渡。
+
+ 
+9. 总结与展望
+9.1 核心结论
+9.1.1 与限制共存：GSD 成功的底层逻辑
+贯穿全部分析的结论表明，GSD 的成功并非源于”突破”AI 模型的技术限制，而是源于围绕这些限制构建了一套完整的工作流体系。Anthropic 官方明确承认，context rot（上下文腐化）是所有大语言模型的固有属性——即使 1M 上下文窗口的 Claude Opus 4.6，在 MRCR v2 基准下仍会从 256K 的 93% 准确率跌至 1M 的 76%，退化幅度达 15–17 个百分点 14。GSD 的设计者将这一约束作为不可变前提，据此重构了整个开发工作流。
+
+这一策略体现为三层互补机制。第一层将项目状态外置到 .planning/ 目录的 9 类文件中，使 LLM 上下文窗口仅作为计算缓存而非持久存储 16 17。第二层让每个 plan 在全新 200K token 上下文中执行，确保 Task 1 与 Task 50 质量一致 84。第三层将 orchestrator 上下文占用率压制在 10-15%，TÂCHES 直播演示证实完成 3 个 phase 后主上下文仅消耗 24% 88。三层机制的共同目标是：通过持续重置上下文来维持推理质量，而非让 LLM 在衰减上下文中勉强工作。
+
+将这一策略类比于垃圾回收机制是恰当的——垃圾回收未消除内存泄漏的可能，而是通过自动回收使开发者不必手动管理。GSD 同样没有”解决”context rot，而是通过编排机制使开发者不必直接与上下文衰减搏斗。gsd-2 进一步引入 programmatic context clearing 22，强化了这一方向。
+
+9.1.2 三大技术支柱的系统耦合
+GSD 的竞争力来自上下文工程、多代理编排和规格驱动开发三者的耦合效应。上下文工程的量化为：所有结构化工件总计约 5,300 行，按每行 4 tokens 估算约 21,200 tokens，仅占 200K 窗口容量的 10.6% 71。这种”极端瘦化”基于明确阈值——0-30% 上下文为最高质量区，50% 起偷工减料，70% 以上出现幻觉 1。
+
+多代理编排由 33 个 Agent 构成完整流水线：Research 阶段 4 个并行 researcher 32；Planning 阶段 Planner 与 Checker 迭代最多 3 次 45；Execution 阶段按依赖图分 wave 并行执行 38；Verification 阶段从目标反向验证 26。orchestrator 遵循”薄编排器”哲学——仅执行 spawn、wait、integrate、route 四个动作 72，使主会话上下文维持在 30-40% 72。
+
+规格驱动的核心是 Goal-Backward Planning——不问”应该构建什么”，而问”目标实现需要什么条件为真” 19。XML 结构化计划使 PLAN.md “IS the prompt”，executor 直接读取实施 29。四层质量门控叠加 schema drift detection 和 scope reduction detection 1，构成生产级自动验证体系。三个支柱形成闭环：上下文工程保障代理编排的质量，代理编排提供规格驱动的执行能力，规格驱动又为上下文工程提供结构化输出。
+
+9.1.3 市场验证：“反企业化”叙事的吸引力与悖论
+GSD 的市场轨迹验证了其”反企业化”定位的吸引力。项目于 2025 年 12 月 14 日开源 ，截至 2026 年 4 月已积累约 55,200 stars，月度增长峰值达 22,615 stars（增长率 96%）8。社区移植版本在官方支持之前即已出现 55；官方运行时支持从 1 个扩展至 15 个 55。
+
+然而”反企业化”叙事内含悖论。GSD 明确拒绝 sprint ceremonies、story points、Jira workflows 等企业仪式 1，但其在系统内部实现的上下文工程、多代理编排和质量门控，实质是一套比传统企业流程更精密的自动化治理体系——将流程编码进系统而非外化为人类仪式。Agile V 论文将 GSD 归类为 “productivity tooling”，指出其”不提供监管可追溯性，不设置人类治理门” 5。这一定位对独立开发者是优势，但对需审计的企业环境构成困难。用户反馈的分化印证了这一点——正面评价集中于”结构使 AI 输出从混乱变为可靠” 6，负面评价则指出”太慢、太详细” 21。这种分化是精准的用户筛选，而非产品缺陷。
+
+9.2 未来展望
+9.2.1 gsd-2 的范式跃迁：从人在回路到人在环外
+GSD v1 到 v2 的演进反映了 AI 编程工具从”增强编辑器”向”替代开发环境”转变的整合趋势。v1 是”寄生”策略——将技能文件安装到各平台配置目录，依赖宿主加载并期望 LLM 遵循指令 77。v2 基于 Pi SDK 成为独立 TypeScript CLI，获得对 agent harness 的直接程序控制能力 22。
+
+v2 可”实际做 v1 只能请求 LLM 做的事”：程序化清除上下文、精确注入文件、管理 Git 分支、跟踪成本、检测卡住循环、从崩溃中恢复 22。headless 模式支持 CI 集成，gsd headless query 以约 50ms 返回 JSON snapshot 22。中文社区将差异描述为：v1 “要求你在每个关键节点都在场”，v2 “可以通宵运行” 118——这是从”人在回路”到”人在环外”的范式转变。
+
+但 v2 的赌注同样巨大。若 Pi SDK 不能获得广泛采用，gsd-2 可能失去 v1 已建立的 55K+ stars 生态优势。转变的成功取决于两个前提：Pi SDK 的稳定性与平台覆盖度，以及用户对”让 AI 通宵运行”的信任度。
+
+9.2.2 社区碎片化创新的持续演化
+GSD 社区生态呈现”碎片化创新”模式，驱动力来自平台差异、需求差异和创新速度差异。社区移植版本的命运已呈现清晰筛选模式：get-shit-done-multi 的 Copilot 支持通过 PR #911 合并到上游，/gsd-autonomous 进入官方发布 55；gsd-gemini 已归档，功能完全并入官方 55；get-shit-done-antigravity 因约 60% 的原创功能与上游单模型架构不兼容而保持独立 55。
+
+对 GSD 上游而言，这意味着需要更开放的扩展机制。随着 v2 支持 20+ LLM 提供商 99，多模型兼容性问题可能从社区 fork 的特殊需求转变为官方核心能力。
+
+9.2.3 根本性挑战：当 Context Rot 消失时
+GSD 的核心价值主张建立在 context rot 的不可解决性之上。若此前提变化，其工作流设计将面临定位重构。当前有两条可能改变前提的路径：一是 Transformer 架构本身的改进——Anthropic 已承认 context rot 是该架构下所有模型的固有特性 76，在纯 Transformer 框架内 GSD 策略仍将持续有效；二是新架构替代（如 State Space Models），若能在长序列上保持稳定的注意力分配，可能根本改变”上下文越满质量越差”的假设。
+
+若第二条路径取得突破，GSD 面临的不是消亡而是定位迁移。wave-based 并行执行解决的是计算并行度，Goal-Backward Planning 解决的是需求理解深度，质量门控解决的是执行正确性——这些能力在上下文无限的情况下仍有价值。但”fresh 200K subagent”和”上下文瘦化”等卖点将失去紧迫性。一个更近期的挑战是 v1 到 v2 的迁移成本：.planning/ 与 .gsd/ 格式不同，虽 v2 提供 /gsd migrate 命令 100，但迁移本身需人工审核。这一选择压力将在未来 6-12 个月内决定 gsd-2 能否复制 v1 的社区增长轨迹。
+
+维度
+当前状态
+未来变量
+影响评估
+上下文容量
+200K 为安全区，1M 已可用但 rot 仍存 14
+新架构可能消除 rot
+核心工作流需重新定位
+运行时生态
+15+ 平台，寄生式适配 55
+Pi SDK 统一程度
+v2 赌注成败的关键
+社区创新
+碎片化 fork，选择压力筛选 55
+官方扩展机制开放度
+决定生态分裂或整合
+自动化程度
+从人在回路到人在环外 118
+用户信任与接受度
+决定 v2 市场采纳速度
+质量门控
+四层门控 + schema/scope 检测 1
+AI 模型自身可靠性提升
+门控系统可能过度保守
+上表从五个维度呈现了 GSD 面临的关键不确定性。这些变量并非独立——若 Pi SDK 获得广泛采用，v2 的统一架构可能同时为上下文格式标准化和社区扩展机制提供基础；若新模型架构突破 context rot，GSD 的”与限制共存”哲学需要转化为”最大化利用新能力”的新叙事。无论具体路径如何，GSD 的核心遗产已经确立：它证明了 AI 编程工具的设计范式不应是”让模型做更多”，而是”围绕模型的已知限制构建可靠系统”。这一范式——将 LLM 视为无状态计算资源、将状态完全外置、通过编排而非扩大上下文来维持质量——可能超越 GSD 本身，成为 AI 原生应用架构的通用设计原则 16 17。
+
+ 
